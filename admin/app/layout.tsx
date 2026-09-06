@@ -1,0 +1,1 @@
+import './styles.css'; export default function Layout({children}:{children:React.ReactNode}){return <html lang="en"><body><header><b>Synapse</b><span>NEET UG Admin</span></header><main>{children}</main></body></html>}

@@ -1,0 +1,274 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  STUDENT
+  MENTOR
+  CONTENT_EDITOR
+  MODERATOR
+  SUPPORT
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum VideoProvider {
+  LOCAL
+  MOCK
+  MUX
+  CLOUDFLARE_STREAM
+}
+
+enum RevisionType {
+  FORMULA
+  REACTION
+  BIOLOGY_FACT
+  NCERT_HIGHLIGHT
+  SHORT_NOTE
+}
+
+model User {
+  id             String           @id @default(cuid())
+  email          String           @unique
+  phone          String?          @unique
+  passwordHash   String
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  roles          UserRole[]
+  sessions       RefreshSession[]
+  studentProfile StudentProfile?
+  videoProgress  VideoProgress[]
+}
+
+model Role {
+  id    String     @id @default(cuid())
+  name  RoleName   @unique
+  users UserRole[]
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+model RefreshSession {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model StudentProfile {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  fullName          String
+  targetExamYear    Int?
+  classLevel        String?
+  preferredLanguage String   @default("en")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Exam {
+  id            String         @id @default(cuid())
+  name          String
+  slug          String         @unique
+  displayOrder  Int            @default(0)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  subjects      Subject[]
+  videos        Video[]
+  revisionItems RevisionItem[]
+
+  @@index([isActive, displayOrder])
+}
+
+model Subject {
+  id            String          @id @default(cuid())
+  examId        String
+  name          String
+  slug          String
+  displayOrder  Int             @default(0)
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  exam          Exam            @relation(fields: [examId], references: [id])
+  classes       AcademicClass[]
+  videos        Video[]
+  revisionItems RevisionItem[]
+
+  @@unique([examId, slug])
+  @@index([examId, isActive])
+}
+
+model AcademicClass {
+  id            String         @id @default(cuid())
+  subjectId     String
+  name          String
+  slug          String
+  displayOrder  Int            @default(0)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  subject       Subject        @relation(fields: [subjectId], references: [id])
+  chapters      Chapter[]
+  videos        Video[]
+  revisionItems RevisionItem[]
+
+  @@unique([subjectId, slug])
+  @@index([subjectId, isActive])
+}
+
+model Chapter {
+  id            String         @id @default(cuid())
+  classId       String
+  name          String
+  slug          String
+  displayOrder  Int            @default(0)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  academicClass AcademicClass  @relation(fields: [classId], references: [id])
+  topics        Topic[]
+  videos        Video[]
+  revisionItems RevisionItem[]
+
+  @@unique([classId, slug])
+  @@index([classId, isActive])
+}
+
+model Topic {
+  id            String         @id @default(cuid())
+  chapterId     String
+  name          String
+  slug          String
+  displayOrder  Int            @default(0)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  chapter       Chapter        @relation(fields: [chapterId], references: [id])
+  subtopics     Subtopic[]
+  videos        Video[]
+  revisionItems RevisionItem[]
+
+  @@unique([chapterId, slug])
+  @@index([chapterId, isActive])
+}
+
+model Subtopic {
+  id            String         @id @default(cuid())
+  topicId       String
+  name          String
+  slug          String
+  displayOrder  Int            @default(0)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  topic         Topic          @relation(fields: [topicId], references: [id])
+  videos        Video[]
+  revisionItems RevisionItem[]
+
+  @@unique([topicId, slug])
+  @@index([topicId, isActive])
+}
+
+model Video {
+  id              String          @id @default(cuid())
+  title           String
+  slug            String          @unique
+  description     String?
+  examId          String
+  subjectId       String
+  academicClassId String
+  chapterId       String
+  topicId         String
+  subtopicId      String?
+  instructorName  String?
+  thumbnailUrl    String?
+  provider        VideoProvider   @default(LOCAL)
+  providerAssetId String
+  playbackId      String?
+  durationSeconds Int?
+  displayOrder    Int             @default(0)
+  isFree          Boolean         @default(true)
+  isPublished     Boolean         @default(false)
+  isActive        Boolean         @default(true)
+  publishedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  exam            Exam            @relation(fields: [examId], references: [id])
+  subject         Subject         @relation(fields: [subjectId], references: [id])
+  academicClass   AcademicClass   @relation(fields: [academicClassId], references: [id])
+  chapter         Chapter         @relation(fields: [chapterId], references: [id])
+  topic           Topic           @relation(fields: [topicId], references: [id])
+  subtopic        Subtopic?       @relation(fields: [subtopicId], references: [id])
+  progress        VideoProgress[]
+
+  @@index([chapterId, isPublished, isActive, displayOrder])
+  @@index([topicId, isPublished, isActive, displayOrder])
+}
+
+model VideoProgress {
+  id                   String    @id @default(cuid())
+  studentId            String
+  videoId              String
+  watchedSeconds       Int       @default(0)
+  lastPositionSeconds  Int       @default(0)
+  completionPercentage Float     @default(0)
+  completed            Boolean   @default(false)
+  firstStartedAt       DateTime?
+  lastWatchedAt        DateTime  @default(now())
+  completedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  student              User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  video                Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, videoId])
+  @@index([studentId, lastWatchedAt])
+}
+
+model RevisionItem {
+  id              String        @id @default(cuid())
+  title           String
+  type            RevisionType
+  content         String
+  examId          String
+  subjectId       String
+  academicClassId String
+  chapterId       String
+  topicId         String
+  subtopicId      String?
+  displayOrder    Int           @default(0)
+  isPublished     Boolean       @default(false)
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  exam            Exam          @relation(fields: [examId], references: [id])
+  subject         Subject       @relation(fields: [subjectId], references: [id])
+  academicClass   AcademicClass @relation(fields: [academicClassId], references: [id])
+  chapter         Chapter       @relation(fields: [chapterId], references: [id])
+  topic           Topic         @relation(fields: [topicId], references: [id])
+  subtopic        Subtopic?     @relation(fields: [subtopicId], references: [id])
+
+  @@index([chapterId, topicId, type, isPublished, isActive])
+}
