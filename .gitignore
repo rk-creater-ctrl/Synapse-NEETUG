@@ -5,6 +5,7 @@ dist/
 build/
 .idea/
 *.iml
+*.tsbuildinfo
 .flutter-plugins
 .flutter-plugins-dependencies
 .env

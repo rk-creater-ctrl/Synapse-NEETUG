@@ -38,7 +38,8 @@ class ChapterLearningScreen extends ConsumerWidget {
                       title: Text(topic.name),
                       subtitle: Text(
                         '${topic.videoCount} videos - '
-                        '${topic.revisionCount} revision items',
+                        '${topic.revisionCount} revision items - '
+                        '${topic.flashcardCount} flashcards',
                       ),
                       onTap: () {
                         Navigator.push(
@@ -47,6 +48,7 @@ class ChapterLearningScreen extends ConsumerWidget {
                             builder: (_) => TopicDetailScreen(
                               topicId: topic.id,
                               title: topic.name,
+                              flashcardCount: topic.flashcardCount,
                             ),
                           ),
                         );

@@ -32,18 +32,26 @@ enum RevisionType {
   SHORT_NOTE
 }
 
+enum FlashcardReviewResult {
+  AGAIN
+  HARD
+  GOOD
+  EASY
+}
+
 model User {
-  id             String           @id @default(cuid())
-  email          String           @unique
-  phone          String?          @unique
-  passwordHash   String
-  isActive       Boolean          @default(true)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  roles          UserRole[]
-  sessions       RefreshSession[]
-  studentProfile StudentProfile?
-  videoProgress  VideoProgress[]
+  id                String              @id @default(cuid())
+  email             String              @unique
+  phone             String?             @unique
+  passwordHash      String
+  isActive          Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  roles             UserRole[]
+  sessions          RefreshSession[]
+  studentProfile    StudentProfile?
+  videoProgress     VideoProgress[]
+  flashcardProgress FlashcardProgress[]
 }
 
 model Role {
@@ -98,6 +106,7 @@ model Exam {
   subjects      Subject[]
   videos        Video[]
   revisionItems RevisionItem[]
+  flashcards    Flashcard[]
 
   @@index([isActive, displayOrder])
 }
@@ -115,6 +124,7 @@ model Subject {
   classes       AcademicClass[]
   videos        Video[]
   revisionItems RevisionItem[]
+  flashcards    Flashcard[]
 
   @@unique([examId, slug])
   @@index([examId, isActive])
@@ -133,6 +143,7 @@ model AcademicClass {
   chapters      Chapter[]
   videos        Video[]
   revisionItems RevisionItem[]
+  flashcards    Flashcard[]
 
   @@unique([subjectId, slug])
   @@index([subjectId, isActive])
@@ -151,6 +162,7 @@ model Chapter {
   topics        Topic[]
   videos        Video[]
   revisionItems RevisionItem[]
+  flashcards    Flashcard[]
 
   @@unique([classId, slug])
   @@index([classId, isActive])
@@ -169,6 +181,7 @@ model Topic {
   subtopics     Subtopic[]
   videos        Video[]
   revisionItems RevisionItem[]
+  flashcards    Flashcard[]
 
   @@unique([chapterId, slug])
   @@index([chapterId, isActive])
@@ -186,6 +199,7 @@ model Subtopic {
   topic         Topic          @relation(fields: [topicId], references: [id])
   videos        Video[]
   revisionItems RevisionItem[]
+  flashcards    Flashcard[]
 
   @@unique([topicId, slug])
   @@index([topicId, isActive])
@@ -271,4 +285,51 @@ model RevisionItem {
   subtopic        Subtopic?     @relation(fields: [subtopicId], references: [id])
 
   @@index([chapterId, topicId, type, isPublished, isActive])
+}
+
+model Flashcard {
+  id              String              @id @default(cuid())
+  title           String?
+  frontContent    String
+  backContent     String
+  explanation     String?
+  imageUrl        String?
+  examId          String
+  subjectId       String
+  academicClassId String
+  chapterId       String
+  topicId         String
+  subtopicId      String?
+  isPublished     Boolean             @default(false)
+  isActive        Boolean             @default(true)
+  isPremium       Boolean             @default(false)
+  sortOrder       Int                 @default(0)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  exam            Exam                @relation(fields: [examId], references: [id])
+  subject         Subject             @relation(fields: [subjectId], references: [id])
+  academicClass   AcademicClass       @relation(fields: [academicClassId], references: [id])
+  chapter         Chapter             @relation(fields: [chapterId], references: [id])
+  topic           Topic               @relation(fields: [topicId], references: [id])
+  subtopic        Subtopic?           @relation(fields: [subtopicId], references: [id])
+  progress        FlashcardProgress[]
+
+  @@index([topicId, isPublished, isActive, sortOrder])
+  @@index([chapterId, isPublished, isActive, sortOrder])
+}
+
+model FlashcardProgress {
+  id             String                 @id @default(cuid())
+  studentId      String
+  flashcardId    String
+  reviewCount    Int                    @default(0)
+  lastResult     FlashcardReviewResult?
+  lastReviewedAt DateTime?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  student        User                   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  flashcard      Flashcard              @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, flashcardId])
+  @@index([studentId, lastReviewedAt])
 }

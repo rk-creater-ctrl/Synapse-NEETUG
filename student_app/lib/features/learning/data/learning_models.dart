@@ -45,19 +45,21 @@ class VideoPlayback {
 
 class LearningTopic {
   final String id, name;
-  final int videoCount, revisionCount;
+  final int videoCount, revisionCount, flashcardCount;
   const LearningTopic(
       {required this.id,
       required this.name,
       required this.videoCount,
-      required this.revisionCount});
+      required this.revisionCount,
+      required this.flashcardCount});
   factory LearningTopic.fromJson(Map<String, dynamic> j) {
     final c = j['_count'] as Map<String, dynamic>? ?? {};
     return LearningTopic(
         id: j['id'] as String,
         name: j['name'] as String,
         videoCount: c['videos'] as int? ?? 0,
-        revisionCount: c['revisionItems'] as int? ?? 0);
+        revisionCount: c['revisionItems'] as int? ?? 0,
+        flashcardCount: c['flashcards'] as int? ?? 0);
   }
 }
 
@@ -74,3 +76,4 @@ class RevisionItem {
       type: j['type'] as String,
       content: j['content'] as String? ?? '');
 }
+class Flashcard { final String id,frontContent,backContent; final String? explanation; const Flashcard({required this.id,required this.frontContent,required this.backContent,this.explanation}); factory Flashcard.fromJson(Map<String,dynamic> j)=>Flashcard(id:j['id'] as String,frontContent:j['frontContent'] as String,backContent:j['backContent'] as String,explanation:j['explanation'] as String?); }

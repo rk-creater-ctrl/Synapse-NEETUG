@@ -41,4 +41,5 @@ class LearningApiService {
         .map(LearningTopic.fromJson)
         .toList();
   }
+  Future<List<Flashcard>> flashcards(String topicId) async {final r=await dio.get('/learning/flashcards/session',queryParameters:{'topicId':topicId});return ((r.data as List?)??[]).map((x)=>Flashcard.fromJson(Map<String,dynamic>.from(x as Map))).toList();} Future<void> reviewFlashcard(String id,String result)=>dio.post('/learning/flashcards/$id/review',data:{'result':result});
 }

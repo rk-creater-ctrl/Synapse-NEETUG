@@ -3,15 +3,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/learning_providers.dart';
 import 'video_player_screen.dart';
+import 'flashcard_study_screen.dart';
 
 class TopicDetailScreen extends ConsumerWidget {
   final String topicId;
   final String title;
+  final int flashcardCount;
 
   const TopicDetailScreen({
     super.key,
     required this.topicId,
     required this.title,
+    this.flashcardCount = 0,
   });
 
   @override
@@ -74,6 +77,12 @@ class TopicDetailScreen extends ConsumerWidget {
               child: CircularProgressIndicator(),
             ),
           ),
+          const SizedBox(height: 24),
+          if (flashcardCount > 0) ...[
+            Text('Flashcards ($flashcardCount)',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
+            const SizedBox(height: 8),
+            FilledButton(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>FlashcardStudyScreen(topicId:topicId))),child:const Text('Study Flashcards')),
+          ],
           const SizedBox(height: 24),
           const Text(
             'Revision',
