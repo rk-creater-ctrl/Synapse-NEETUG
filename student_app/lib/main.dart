@@ -6,11 +6,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 
+import 'core/device/installation_identity_service.dart';
 import 'features/learning/presentation/chapter_learning_screen.dart';
 
 const _storage = FlutterSecureStorage();
+final _installationIdentityService = InstallationIdentityService();
 
 final dioProvider = Provider<Dio>((ref) => ApiClient().dio);
+
+Future<void> _storeSession(Map<String, dynamic> data) async {
+  final accessToken = data['accessToken'] as String?;
+  final refreshToken = data['refreshToken'] as String?;
+
+  if (accessToken == null || refreshToken == null) {
+    throw const FormatException('Invalid authentication response');
+  }
+
+  await _storage.write(key: 'access', value: accessToken);
+  await _storage.write(key: 'refresh', value: refreshToken);
+  authState.setAuthenticated(true);
+}
 
 class AuthState extends ChangeNotifier {
   bool ready = false;
@@ -28,7 +43,8 @@ class AuthState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
-    await _storage.deleteAll();
+    await _storage.delete(key: 'access');
+    await _storage.delete(key: 'refresh');
     authenticated = false;
     notifyListeners();
   }
@@ -190,6 +206,10 @@ class SynapseApp extends StatelessWidget {
           path: '/profile',
           builder: (_, __) => const Profile(),
         ),
+        GoRoute(
+          path: '/devices',
+          builder: (_, __) => const DeviceManagementScreen(),
+        ),
       ],
     );
 
@@ -273,42 +293,65 @@ class _LoginState extends ConsumerState<Login> {
     });
 
     try {
+      final identity = await _installationIdentityService.getIdentity();
       final response = await ref.read(dioProvider).post(
         '/auth/login',
         data: {
           'email': _emailController.text.trim(),
           'password': _passwordController.text,
+          'installationId': identity.installationId,
+          'deviceName': identity.deviceName,
+          'platform': identity.platform,
         },
       );
 
-      final accessToken = response.data['accessToken'] as String?;
-      final refreshToken = response.data['refreshToken'] as String?;
-
-      if (accessToken == null || refreshToken == null) {
-        throw Exception('Invalid authentication response');
+      final data = Map<String, dynamic>.from(response.data as Map);
+      if (data['code'] == 'DEVICE_APPROVAL_REQUIRED') {
+        if (mounted) {
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => PendingDeviceApprovalScreen(
+                email: _emailController.text.trim(),
+                password: _passwordController.text,
+                identity: identity,
+                pending: PendingDeviceApproval.fromJson(data),
+              ),
+            ),
+          );
+        }
+        return;
       }
 
-      await _storage.write(
-        key: 'access',
-        value: accessToken,
-      );
-
-      await _storage.write(
-        key: 'refresh',
-        value: refreshToken,
-      );
-
-      authState.setAuthenticated(true);
+      await _storeSession(data);
 
       if (mounted) {
         context.go('/home');
       }
+    } on DioException catch (error) {
+      final data = error.response?.data;
+      final code = data is Map ? data['code']?.toString() : null;
+      final message = code == 'DEVICE_LIMIT_REACHED'
+          ? 'Two devices are already active. Remove an existing device before signing in.'
+          : code == 'DEVICE_NOT_APPROVED'
+              ? 'This device is not approved. Use your primary device to approve it.'
+              : 'Unable to sign in';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+          ),
+        );
+      }
+    } on FormatException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to sign in')),
+        );
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to sign in'),
-          ),
+          const SnackBar(content: Text('Unable to sign in')),
         );
       }
     } finally {
@@ -371,7 +414,7 @@ class Home extends StatelessWidget {
             onPressed: () => context.go('/subjects'),
           ),
           TextButton(
-            onPressed: () => context.go('/profile'),
+            onPressed: () => context.push('/profile'),
             child: const Text('Profile'),
           ),
         ],
@@ -578,15 +621,489 @@ class Profile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SynapsePage(
+    return SynapsePage(
       title: 'Profile',
-      child: SynapseCard(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text(
+      child: Column(
+        children: [
+          const SynapseCard(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
             'Profile setup is available after registration.',
           ),
+            ),
+          ),
+          SynapseButton(
+            label: 'Manage devices',
+            onPressed: () => context.push('/devices'),
+          ),
+          SynapseButton(
+            label: 'Logout',
+            onPressed: () async {
+              await authState.signOut();
+              if (context.mounted) {
+                context.go('/login');
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class PendingDeviceApproval {
+  final String deviceId;
+  final String approvalToken;
+  final DateTime? expiresAt;
+  final String message;
+
+  const PendingDeviceApproval({
+    required this.deviceId,
+    required this.approvalToken,
+    required this.expiresAt,
+    required this.message,
+  });
+
+  factory PendingDeviceApproval.fromJson(Map<String, dynamic> json) {
+    return PendingDeviceApproval(
+      deviceId: json['deviceId']?.toString() ?? '',
+      approvalToken: json['approvalToken']?.toString() ?? '',
+      expiresAt: DateTime.tryParse(json['expiresAt']?.toString() ?? ''),
+      message: json['message']?.toString() ??
+          'Approve this device from your primary device before signing in.',
+    );
+  }
+}
+
+class PendingDeviceApprovalScreen extends ConsumerStatefulWidget {
+  final String email;
+  final String password;
+  final InstallationIdentity identity;
+  final PendingDeviceApproval pending;
+
+  const PendingDeviceApprovalScreen({
+    super.key,
+    required this.email,
+    required this.password,
+    required this.identity,
+    required this.pending,
+  });
+
+  @override
+  ConsumerState<PendingDeviceApprovalScreen> createState() =>
+      _PendingDeviceApprovalScreenState();
+}
+
+class _PendingDeviceApprovalScreenState
+    extends ConsumerState<PendingDeviceApprovalScreen> {
+  late PendingDeviceApproval _pending;
+  bool _checking = false;
+  String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    _pending = widget.pending;
+  }
+
+  bool get _expired =>
+      _pending.expiresAt != null && _pending.expiresAt!.isBefore(DateTime.now());
+
+  Future<void> _retryLogin() async {
+    if (_checking) {
+      return;
+    }
+    setState(() {
+      _checking = true;
+      _message = null;
+    });
+
+    try {
+      final response = await ref.read(dioProvider).post(
+        '/auth/login',
+        data: {
+          'email': widget.email,
+          'password': widget.password,
+          'installationId': widget.identity.installationId,
+          'deviceName': widget.identity.deviceName,
+          'platform': widget.identity.platform,
+        },
+      );
+      final data = Map<String, dynamic>.from(response.data as Map);
+      if (data['code'] == 'DEVICE_APPROVAL_REQUIRED') {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _pending = PendingDeviceApproval.fromJson(data);
+          _message = 'Approval is still pending. Use the latest approval token below.';
+        });
+        return;
+      }
+
+      await _storeSession(data);
+      if (mounted) {
+        context.go('/home');
+      }
+    } on DioException catch (error) {
+      final data = error.response?.data;
+      final code = data is Map ? data['code']?.toString() : null;
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _message = code == 'DEVICE_LIMIT_REACHED'
+            ? 'Two devices are already active. Remove an existing device before signing in.'
+            : code == 'APPROVAL_EXPIRED'
+                ? 'This approval request expired. Try again to request a new approval token.'
+                : 'Unable to check device approval.';
+      });
+    } on FormatException {
+      if (mounted) {
+        setState(() {
+          _message = 'Unable to complete sign in.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _checking = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SynapsePage(
+      title: 'Approve this device',
+      child: ListView(
+        children: [
+          Text(_pending.message),
+          const SizedBox(height: 16),
+          const Text(
+            'On your primary device, open Profile → Manage devices and approve this pending device. '
+            'The approval token must be transferred manually for the current backend API.',
+          ),
+          const SizedBox(height: 16),
+          const Text('Approval token'),
+          SelectableText(_pending.approvalToken),
+          const SizedBox(height: 8),
+          Text(
+            _pending.expiresAt == null
+                ? 'This request expires shortly.'
+                : _expired
+                    ? 'This request has expired. Check approval to request a new token.'
+                    : 'Expires: ${_pending.expiresAt!.toLocal()}',
+          ),
+          if (_message != null) ...[
+            const SizedBox(height: 12),
+            Text(_message!),
+          ],
+          SynapseButton(
+            label: _checking ? 'Checking...' : 'Check approval',
+            onPressed: _checking ? () {} : _retryLogin,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class UserDeviceInfo {
+  final String id;
+  final String installationId;
+  final String? deviceName;
+  final String? platform;
+  final bool isPrimary;
+  final bool isApproved;
+  final DateTime? revokedAt;
+
+  const UserDeviceInfo({
+    required this.id,
+    required this.installationId,
+    required this.deviceName,
+    required this.platform,
+    required this.isPrimary,
+    required this.isApproved,
+    required this.revokedAt,
+  });
+
+  factory UserDeviceInfo.fromJson(Map<String, dynamic> json) {
+    return UserDeviceInfo(
+      id: json['id']?.toString() ?? '',
+      installationId: json['installationId']?.toString() ?? '',
+      deviceName: json['deviceName']?.toString(),
+      platform: json['platform']?.toString(),
+      isPrimary: json['isPrimary'] == true,
+      isApproved: json['isApproved'] == true,
+      revokedAt: DateTime.tryParse(json['revokedAt']?.toString() ?? ''),
+    );
+  }
+
+  bool get isRevoked => revokedAt != null;
+}
+
+class DeviceManagementScreen extends ConsumerStatefulWidget {
+  const DeviceManagementScreen({super.key});
+
+  @override
+  ConsumerState<DeviceManagementScreen> createState() =>
+      _DeviceManagementScreenState();
+}
+
+class _DeviceManagementScreenState extends ConsumerState<DeviceManagementScreen> {
+  final _approvalTokenController = TextEditingController();
+  bool _loading = true;
+  bool _working = false;
+  String? _error;
+  String? _selectedPendingDeviceId;
+  String? _currentInstallationId;
+  List<UserDeviceInfo> _devices = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _approvalTokenController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final identity = await _installationIdentityService.getIdentity();
+      final response = await ref.read(dioProvider).get('/auth/devices');
+      final data = response.data as List? ?? [];
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _currentInstallationId = identity.installationId;
+        _devices = data
+            .map((item) => UserDeviceInfo.fromJson(
+                Map<String, dynamic>.from(item as Map)))
+            .toList();
+      });
+    } on DioException catch (error) {
+      final data = error.response?.data;
+      final code = data is Map ? data['code']?.toString() : null;
+      if (mounted) {
+        setState(() {
+          _error = code == 'DEVICE_NOT_APPROVED'
+              ? 'This device is no longer approved. Sign in again after approval.'
+              : 'Unable to load devices.';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = 'Unable to load devices.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _approve(UserDeviceInfo device) async {
+    final approvalToken = _approvalTokenController.text.trim();
+    if (approvalToken.isEmpty || _working) {
+      return;
+    }
+    setState(() {
+      _working = true;
+      _error = null;
+    });
+    try {
+      await ref.read(dioProvider).post(
+        '/auth/devices/${device.id}/approve',
+        data: {'approvalToken': approvalToken},
+      );
+      _approvalTokenController.clear();
+      if (mounted) {
+        setState(() {
+          _selectedPendingDeviceId = null;
+        });
+      }
+      await _load();
+    } on DioException catch (error) {
+      final data = error.response?.data;
+      final code = data is Map ? data['code']?.toString() : null;
+      if (mounted) {
+        setState(() {
+          _error = code == 'APPROVAL_EXPIRED'
+              ? 'This approval request expired.'
+              : code == 'DEVICE_LIMIT_REACHED'
+                  ? 'Two approved devices are already active.'
+                  : 'Unable to approve this device.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _working = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _revoke(UserDeviceInfo device) async {
+    if (_working || device.installationId == _currentInstallationId) {
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Revoke device?'),
+        content: Text('This will sign out ${device.deviceName ?? 'this device'}.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Revoke'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    setState(() {
+      _working = true;
+      _error = null;
+    });
+    try {
+      await ref.read(dioProvider).post('/auth/devices/${device.id}/revoke');
+      await _load();
+    } on DioException {
+      if (mounted) {
+        setState(() {
+          _error = 'Unable to revoke this device.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _working = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const SynapsePage(
+        title: 'Manage devices',
+        child: SynapseLoader(),
+      );
+    }
+    if (_error != null && _devices.isEmpty) {
+      return SynapsePage(
+        title: 'Manage devices',
+        child: Column(
+          children: [
+            SynapseErrorState(message: _error!),
+            SynapseButton(label: 'Retry', onPressed: _load),
+          ],
         ),
+      );
+    }
+
+    final current = _devices.where(
+      (device) => device.installationId == _currentInstallationId,
+    );
+    final isCurrentPrimary = current.any(
+      (device) => device.isPrimary && device.isApproved && !device.isRevoked,
+    );
+    return SynapsePage(
+      title: 'Manage devices',
+      child: ListView(
+        children: [
+          const Text('Devices linked to your account.'),
+          if (!isCurrentPrimary)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Text('Only your primary device can approve pending devices.'),
+            ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(_error!),
+          ],
+          const SizedBox(height: 12),
+          ..._devices.map((device) {
+            final isCurrent = device.installationId == _currentInstallationId;
+            final isPending = !device.isApproved && !device.isRevoked;
+            final isSelected = _selectedPendingDeviceId == device.id;
+            return SynapseCard(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(device.deviceName ?? 'Unnamed device'),
+                    Text(device.platform ?? 'Unknown platform'),
+                    Text(device.isRevoked
+                        ? 'Revoked'
+                        : device.isApproved
+                            ? device.isPrimary
+                                ? 'Primary approved device'
+                                : 'Approved device'
+                            : 'Pending approval'),
+                    if (isCurrent) const Text('Current device'),
+                    if (isCurrentPrimary && isPending) ...[
+                      TextButton(
+                        onPressed: _working
+                            ? null
+                            : () {
+                                setState(() {
+                                  _selectedPendingDeviceId =
+                                      isSelected ? null : device.id;
+                                });
+                              },
+                        child: Text(isSelected ? 'Cancel approval' : 'Approve'),
+                      ),
+                      if (isSelected) ...[
+                        TextField(
+                          controller: _approvalTokenController,
+                          decoration: const InputDecoration(
+                            labelText: 'Approval token from pending device',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        SynapseButton(
+                          label: _working ? 'Approving...' : 'Confirm approval',
+                          onPressed: _working ? () {} : () => _approve(device),
+                        ),
+                      ],
+                    ],
+                    if (!isCurrent && !device.isRevoked)
+                      TextButton(
+                        onPressed: _working ? null : () => _revoke(device),
+                        child: const Text('Revoke device'),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
       ),
     );
   }

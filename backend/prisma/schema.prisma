@@ -49,6 +49,7 @@ model User {
   updatedAt         DateTime            @updatedAt
   roles             UserRole[]
   sessions          RefreshSession[]
+  devices           UserDevice[]
   studentProfile    StudentProfile?
   videoProgress     VideoProgress[]
   flashcardProgress FlashcardProgress[]
@@ -71,16 +72,43 @@ model UserRole {
 }
 
 model RefreshSession {
-  id        String    @id @default(cuid())
+  id        String      @id @default(cuid())
   userId    String
+  deviceId  String?
   tokenHash String
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device    UserDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([deviceId])
   @@index([expiresAt])
+}
+
+model UserDevice {
+  id                    String           @id @default(cuid())
+  userId                String
+  installationId        String
+  deviceName            String?
+  platform              String?
+  isPrimary             Boolean          @default(false)
+  isApproved            Boolean          @default(false)
+  approvedAt            DateTime?
+  revokedAt             DateTime?
+  approvalChallengeHash String?
+  approvalExpiresAt     DateTime?
+  firstSeenAt           DateTime         @default(now())
+  lastSeenAt            DateTime         @default(now())
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  user                  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions              RefreshSession[]
+
+  @@unique([userId, installationId])
+  @@index([userId, isApproved, revokedAt])
+  @@index([userId, isPrimary])
 }
 
 model StudentProfile {

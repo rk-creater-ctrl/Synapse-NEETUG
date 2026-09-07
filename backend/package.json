@@ -1,6 +1,54 @@
 {
-  "name":"@synapse/api","private":true,"version":"0.1.0","scripts":{"start":"nest start","start:dev":"nest start --watch","build":"nest build","lint":"tsc --noEmit","test":"jest --runInBand","prisma:format":"prisma format","prisma:generate":"prisma generate","prisma:migrate":"prisma migrate dev","prisma:seed":"prisma db seed","prisma:validate":"prisma validate"},
-  "prisma":{"seed":"tsx prisma/seed.ts"},
-  "dependencies":{"@nestjs/common":"^11.0.1","@nestjs/config":"^4.0.0","@nestjs/core":"^11.0.1","@nestjs/jwt":"^11.0.0","@nestjs/passport":"^11.0.5","@nestjs/platform-express":"^11.0.1","@nestjs/swagger":"^11.0.0","@prisma/client":"^6.0.0","argon2":"^0.41.1","class-transformer":"^0.5.1","class-validator":"^0.14.1","helmet":"^8.0.0","joi":"^17.13.3","passport":"^0.7.0","passport-jwt":"^4.0.1","reflect-metadata":"^0.2.2","rxjs":"^7.8.1"},
-  "devDependencies":{"@nestjs/cli":"^11.0.0","@nestjs/schematics":"^11.0.0","@nestjs/testing":"^11.0.1","@types/jest":"^29.5.14","@types/node":"^22.10.0","@types/passport-jwt":"^4.0.1","jest":"^29.7.0","prisma":"^6.0.0","ts-jest":"^29.2.5","ts-node":"^10.9.2","tsx":"^4.19.2","typescript":"^5.7.2"}
+  "name": "@synapse/api",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "build": "nest build",
+    "lint": "tsc --noEmit",
+    "test": "jest --runInBand",
+    "prisma:format": "prisma format",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "prisma db seed",
+    "prisma:validate": "prisma validate"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/config": "^4.0.0",
+    "@nestjs/core": "^11.0.1",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/swagger": "^11.0.0",
+    "@nestjs/throttler": "^6.5.0",
+    "@prisma/client": "^6.0.0",
+    "argon2": "^0.41.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "helmet": "^8.0.0",
+    "joi": "^17.13.3",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/testing": "^11.0.1",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.0",
+    "@types/passport-jwt": "^4.0.1",
+    "jest": "^29.7.0",
+    "prisma": "^6.0.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
 }
