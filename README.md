@@ -27,7 +27,7 @@ Auth: `POST /api/v1/auth/register|login|refresh|logout`, `GET /api/v1/auth/me`.
 
 Public academic lists: `GET /api/v1/academics/exams|subjects|classes|chapters|topics|subtopics`.
 
-Admin management: `GET|POST /api/v1/admin/academics/:resource`, `GET|PATCH /api/v1/admin/academics/:resource/:id`, where resource is an academic collection. Create and update are restricted to ADMIN/SUPER_ADMIN; list is authenticated admin. Lists accept `page`, `limit`, `search`, `sort`, `order`.
+Admin management: `GET|POST /api/v1/admin/academics/:resource`, `GET|PATCH /api/v1/admin/academics/:resource/:id`, where resource is an academic collection. Academic and learning CMS endpoints are restricted to CONTENT_EDITOR, ADMIN, and SUPER_ADMIN. Lists accept bounded pagination and relevant search, hierarchy, publication, active-state, and premium filters.
 
 Learning: authenticated students use `/api/v1/learning/videos`, `/learning/videos/:id/playback`, `/learning/videos/:id/progress`, `/learning/continue`, `/learning/chapters/:id`, and `/learning/revision`. Only active published content is exposed. Completion is derived server-side at 90%; clients should sync at controlled intervals rather than every second. Admin learning endpoints are under `/api/v1/admin/learning/videos` and `/api/v1/admin/learning/revision`.
 
@@ -42,3 +42,19 @@ Users have many normalized roles and refresh sessions. A student profile belongs
 ## Checks
 
 Run `npm.cmd --workspace backend run build`, `npm.cmd --workspace backend test`, `npm.cmd --workspace backend run prisma:validate`, `npm.cmd --workspace admin run build`, and `flutter analyze` after dependencies are installed.
+
+## Phase 5 CMS foundation
+
+Academic hierarchy records now have independent active/draft-published state. Student-facing academic, video, revision, and flashcard reads require active and published content together with active and published ancestors. CMS lists intentionally include drafts and inactive records for authorized content managers.
+
+`MediaAsset` is provider-neutral CMS metadata only. It stores a provider, external key, optional URL and descriptive metadata; it contains no provider credentials, access tokens, or binary data. Video provider/playback metadata remains unchanged, `mediaAssetId` is optional, and Flashcard `imageUrl` remains supported during the transition.
+
+CMS list endpoints for Videos, Revision Items, Flashcards, Media Assets, and Content Imports use `{ items, meta: { page, limit, total, totalPages } }`. Explicit `false` values for published, active, free/premium status are supported.
+
+### Bulk content import
+
+Authorized content managers can use `/api/v1/admin/content-imports` to preview and explicitly apply CSV/XLSX imports. Supported targets are Exam, Subject, Academic Class, Chapter, Topic, Subtopic, Video, Revision Item, and Flashcard. Preview accepts files up to 5 MB and 500 data rows, validates and persists only the import job/row report, and never mutates learning or academic content.
+
+Hierarchy references use scoped readable slug paths, not database IDs: `exam_slug`, then `subject_slug`, `class_slug`, `chapter_slug`, `topic_slug`, and optional `subtopic_slug`. Academic resources use their scoped slug path as the deterministic natural key; Video uses its globally unique `slug`. Those targets support `ERROR`, `SKIP`, and `UPDATE` duplicate strategies. Revision Item and Flashcard imports are intentionally `ERROR`-only because no deterministic update key is currently exposed.
+
+Apply revalidates previewed rows, reserves the job against double application, and performs content mutations, row status updates, and audit events in one transaction. A failed apply does not leave partial content mutations. Import source bytes are processed only in memory and are never stored.

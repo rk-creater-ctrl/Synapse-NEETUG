@@ -22,7 +22,7 @@ describe("LearningService", () => {
       upsert: jest.fn(),
     },
     chapter: {
-      findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     revisionItem: {
       findMany: jest.fn(),
@@ -50,16 +50,17 @@ describe("LearningService", () => {
         subjectId: "subject-1",
       });
 
-      expect(db.video.findMany).toHaveBeenCalledWith({
-        where: {
+      expect(db.video.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
           isActive: true,
           isPublished: true,
           subjectId: "subject-1",
-        },
+          AND: expect.any(Array),
+        }),
         orderBy: {
           displayOrder: "asc",
         },
-      });
+      }));
     });
 
     it("maps classId filter to academicClassId", async () => {
@@ -69,16 +70,17 @@ describe("LearningService", () => {
         classId: "class-11",
       });
 
-      expect(db.video.findMany).toHaveBeenCalledWith({
-        where: {
+      expect(db.video.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
           isActive: true,
           isPublished: true,
           academicClassId: "class-11",
-        },
+          AND: expect.any(Array),
+        }),
         orderBy: {
           displayOrder: "asc",
         },
-      });
+      }));
     });
   });
 
@@ -91,13 +93,45 @@ describe("LearningService", () => {
       );
 
       expect(db.video.findFirst).toHaveBeenCalledWith({
-        where: {
+        where: expect.objectContaining({
           id: "missing-video",
           isActive: true,
           isPublished: true,
-        },
+          AND: expect.any(Array),
+        }),
       });
     });
+  });
+
+  it("adds hierarchy visibility requirements to student content reads", async () => {
+    db.video.findMany.mockResolvedValue([]);
+
+    await service.videos({ chapterId: "chapter-1" });
+
+    const where = db.video.findMany.mock.calls[0][0].where;
+    expect(where.AND).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ exam: expect.any(Object) }),
+        expect.objectContaining({ chapter: expect.any(Object) }),
+        expect.objectContaining({ topic: expect.any(Object) }),
+      ]),
+    );
+  });
+
+  it("uses the same hierarchy visibility constraints for revision reads", async () => {
+    db.revisionItem.findMany.mockResolvedValue([]);
+
+    await service.revision({ topicId: "topic-1" });
+
+    const where = db.revisionItem.findMany.mock.calls[0][0].where;
+    expect(where).toEqual(
+      expect.objectContaining({
+        isActive: true,
+        isPublished: true,
+        topicId: "topic-1",
+        AND: expect.any(Array),
+      }),
+    );
   });
 
   describe("playback", () => {
@@ -236,7 +270,7 @@ describe("LearningService", () => {
 
   describe("chapter", () => {
     it("throws when chapter does not exist", async () => {
-      db.chapter.findUnique.mockResolvedValue(null);
+      db.chapter.findFirst.mockResolvedValue(null);
 
       await expect(service.chapter("missing-chapter")).rejects.toBeInstanceOf(
         NotFoundException,

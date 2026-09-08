@@ -39,6 +39,39 @@ enum FlashcardReviewResult {
   EASY
 }
 
+enum ContentImportTarget {
+  ACADEMIC_EXAM
+  ACADEMIC_SUBJECT
+  ACADEMIC_CLASS
+  ACADEMIC_CHAPTER
+  ACADEMIC_TOPIC
+  ACADEMIC_SUBTOPIC
+  VIDEO
+  REVISION_ITEM
+  FLASHCARD
+}
+
+enum ContentImportStatus {
+  PREVIEWED
+  APPLYING
+  APPLIED
+  FAILED
+}
+
+enum ContentImportDuplicateStrategy {
+  ERROR
+  SKIP
+  UPDATE
+}
+
+enum ContentImportRowStatus {
+  VALID
+  INVALID
+  APPLIED
+  SKIPPED
+  FAILED
+}
+
 model User {
   id                String              @id @default(cuid())
   email             String              @unique
@@ -53,6 +86,8 @@ model User {
   studentProfile    StudentProfile?
   videoProgress     VideoProgress[]
   flashcardProgress FlashcardProgress[]
+  contentImportJobs ContentImportJob[]
+  contentAuditEvents ContentAuditEvent[]
 }
 
 model Role {
@@ -129,6 +164,7 @@ model Exam {
   slug          String         @unique
   displayOrder  Int            @default(0)
   isActive      Boolean        @default(true)
+  isPublished   Boolean        @default(true)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   subjects      Subject[]
@@ -146,6 +182,7 @@ model Subject {
   slug          String
   displayOrder  Int             @default(0)
   isActive      Boolean         @default(true)
+  isPublished   Boolean         @default(true)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   exam          Exam            @relation(fields: [examId], references: [id])
@@ -165,6 +202,7 @@ model AcademicClass {
   slug          String
   displayOrder  Int            @default(0)
   isActive      Boolean        @default(true)
+  isPublished   Boolean        @default(true)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   subject       Subject        @relation(fields: [subjectId], references: [id])
@@ -184,6 +222,7 @@ model Chapter {
   slug          String
   displayOrder  Int            @default(0)
   isActive      Boolean        @default(true)
+  isPublished   Boolean        @default(true)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   academicClass AcademicClass  @relation(fields: [classId], references: [id])
@@ -203,6 +242,7 @@ model Topic {
   slug          String
   displayOrder  Int            @default(0)
   isActive      Boolean        @default(true)
+  isPublished   Boolean        @default(true)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   chapter       Chapter        @relation(fields: [chapterId], references: [id])
@@ -222,6 +262,7 @@ model Subtopic {
   slug          String
   displayOrder  Int            @default(0)
   isActive      Boolean        @default(true)
+  isPublished   Boolean        @default(true)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   topic         Topic          @relation(fields: [topicId], references: [id])
@@ -231,6 +272,25 @@ model Subtopic {
 
   @@unique([topicId, slug])
   @@index([topicId, isActive])
+}
+
+model MediaAsset {
+  id          String      @id @default(cuid())
+  provider    String
+  externalKey String
+  url         String?
+  mimeType    String?
+  sizeBytes   Int?
+  metadata    Json?
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  videos      Video[]
+  flashcards  Flashcard[]
+
+  @@unique([provider, externalKey])
+  @@index([provider, isActive])
+  @@index([mimeType, isActive])
 }
 
 model Video {
@@ -249,6 +309,7 @@ model Video {
   provider        VideoProvider   @default(LOCAL)
   providerAssetId String
   playbackId      String?
+  mediaAssetId    String?
   durationSeconds Int?
   displayOrder    Int             @default(0)
   isFree          Boolean         @default(true)
@@ -263,10 +324,12 @@ model Video {
   chapter         Chapter         @relation(fields: [chapterId], references: [id])
   topic           Topic           @relation(fields: [topicId], references: [id])
   subtopic        Subtopic?       @relation(fields: [subtopicId], references: [id])
+  mediaAsset      MediaAsset?     @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
   progress        VideoProgress[]
 
   @@index([chapterId, isPublished, isActive, displayOrder])
   @@index([topicId, isPublished, isActive, displayOrder])
+  @@index([mediaAssetId])
 }
 
 model VideoProgress {
@@ -322,6 +385,7 @@ model Flashcard {
   backContent     String
   explanation     String?
   imageUrl        String?
+  mediaAssetId    String?
   examId          String
   subjectId       String
   academicClassId String
@@ -340,10 +404,12 @@ model Flashcard {
   chapter         Chapter             @relation(fields: [chapterId], references: [id])
   topic           Topic               @relation(fields: [topicId], references: [id])
   subtopic        Subtopic?           @relation(fields: [subtopicId], references: [id])
+  mediaAsset      MediaAsset?         @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
   progress        FlashcardProgress[]
 
   @@index([topicId, isPublished, isActive, sortOrder])
   @@index([chapterId, isPublished, isActive, sortOrder])
+  @@index([mediaAssetId])
 }
 
 model FlashcardProgress {
@@ -360,4 +426,67 @@ model FlashcardProgress {
 
   @@unique([studentId, flashcardId])
   @@index([studentId, lastReviewedAt])
+}
+
+model ContentImportJob {
+  id                String                         @id @default(cuid())
+  target            ContentImportTarget
+  status            ContentImportStatus            @default(PREVIEWED)
+  originalFilename  String
+  checksum          String
+  duplicateStrategy ContentImportDuplicateStrategy @default(ERROR)
+  createdByUserId   String
+  totalRows         Int                            @default(0)
+  validRows         Int                            @default(0)
+  invalidRows       Int                            @default(0)
+  insertedRows      Int                            @default(0)
+  updatedRows       Int                            @default(0)
+  skippedRows       Int                            @default(0)
+  failedRows        Int                            @default(0)
+  previewedAt       DateTime                       @default(now())
+  appliedAt         DateTime?
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+  createdBy         User                           @relation(fields: [createdByUserId], references: [id])
+  rows              ContentImportRow[]
+  auditEvents       ContentAuditEvent[]
+
+  @@index([createdByUserId, createdAt])
+  @@index([status, createdAt])
+  @@index([target, createdAt])
+}
+
+model ContentImportRow {
+  id                String                 @id @default(cuid())
+  jobId             String
+  rowNumber         Int
+  normalizedData    Json
+  status            ContentImportRowStatus @default(VALID)
+  errorCode         String?
+  errorMessage      String?
+  resultingEntityId String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  job               ContentImportJob       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, rowNumber])
+  @@index([jobId, status])
+}
+
+model ContentAuditEvent {
+  id          String            @id @default(cuid())
+  actorUserId String
+  entityType  String
+  entityId    String
+  action      String
+  beforeData  Json?
+  afterData   Json?
+  importJobId String?
+  createdAt   DateTime          @default(now())
+  actor       User              @relation(fields: [actorUserId], references: [id])
+  importJob   ContentImportJob? @relation(fields: [importJobId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([importJobId])
 }

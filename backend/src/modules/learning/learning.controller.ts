@@ -1,3 +1,121 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common'; import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'; import { RoleName } from '@prisma/client'; import { Roles } from '../../shared/decorators/roles.decorator'; import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard'; import { RolesGuard } from '../../shared/guards/roles.guard'; import { LearningFilterDto, ProgressDto, RevisionDto, VideoDto } from './dto'; import { LearningService } from './learning.service';
-@ApiTags('learning')@ApiBearerAuth()@UseGuards(JwtAuthGuard)@Controller('learning')export class LearningController{constructor(private s:LearningService){}@Get('videos')videos(@Query()q:LearningFilterDto){return this.s.videos(q)}@Get('videos/:id')video(@Param('id')id:string){return this.s.video(id)}@Get('videos/:id/playback')playback(@Param('id')id:string){return this.s.playback(id)}@Get('videos/:id/progress')progress(@Req()r:any,@Param('id')id:string){return this.s.progress(r.user.id,id)}@Put('videos/:id/progress')update(@Req()r:any,@Param('id')id:string,@Body()d:ProgressDto){return this.s.updateProgress(r.user.id,id,d)}@Get('chapters/:id')chapter(@Param('id')id:string){return this.s.chapter(id)}@Get('continue')cont(@Req()r:any){return this.s.cont(r.user.id)}@Get('revision')revision(@Query()q:LearningFilterDto){return this.s.revision(q)}@Get('revision/:id')revisionById(@Param('id')id:string){return this.s.revisionById(id)}}
-@ApiTags('admin learning')@ApiBearerAuth()@UseGuards(JwtAuthGuard,RolesGuard)@Roles(RoleName.ADMIN,RoleName.SUPER_ADMIN)@Controller('admin/learning')export class AdminLearningController{constructor(private s:LearningService){}@Get('videos')videos(){return this.s.adminVideos()}@Post('videos')createVideo(@Body()d:VideoDto){return this.s.createVideo(d)}@Patch('videos/:id')updateVideo(@Param('id')id:string,@Body()d:Partial<VideoDto>){return this.s.updateVideo(id,d)}@Get('revision')revision(){return this.s.adminRevision()}@Post('revision')createRevision(@Body()d:RevisionDto){return this.s.createRevision(d)}@Patch('revision/:id')updateRevision(@Param('id')id:string,@Body()d:Partial<RevisionDto>){return this.s.updateRevision(id,d)}}
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { ContentManagementRoles } from '../../shared/decorators/content-management-roles.decorator';
+import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
+import { RolesGuard } from '../../shared/guards/roles.guard';
+import { AdminLearningContentService } from './admin-learning-content.service';
+import {
+  AdminRevisionListDto,
+  AdminVideoListDto,
+  LearningFilterDto,
+  ProgressDto,
+  RevisionDto,
+  UpdateRevisionDto,
+  UpdateVideoDto,
+  VideoDto,
+} from './dto';
+import { LearningService } from './learning.service';
+
+type AuthenticatedUser = { id: string };
+
+@Controller('learning')
+@UseGuards(JwtAuthGuard)
+export class LearningController {
+  constructor(private readonly learning: LearningService) {}
+
+  @Get('videos')
+  videos(@Query() filters: LearningFilterDto) {
+    return this.learning.videos(filters);
+  }
+
+  @Get('videos/:id/playback')
+  playback(@Param('id') id: string) {
+    return this.learning.playback(id);
+  }
+
+  @Get('videos/:id/progress')
+  progress(@Req() request: { user: AuthenticatedUser }, @Param('id') id: string) {
+    return this.learning.progress(request.user.id, id);
+  }
+
+  @Put('videos/:id/progress')
+  updateProgress(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id') id: string,
+    @Body() dto: ProgressDto,
+  ) {
+    return this.learning.updateProgress(request.user.id, id, dto);
+  }
+
+  @Get('videos/:id')
+  video(@Param('id') id: string) {
+    return this.learning.video(id);
+  }
+
+  @Get('chapters/:id')
+  chapter(@Param('id') id: string) {
+    return this.learning.chapter(id);
+  }
+
+  @Get('continue')
+  continueLearning(@Req() request: { user: AuthenticatedUser }) {
+    return this.learning.cont(request.user.id);
+  }
+
+  @Get('revision')
+  revision(@Query() filters: LearningFilterDto) {
+    return this.learning.revision(filters);
+  }
+
+  @Get('revision/:id')
+  revisionById(@Param('id') id: string) {
+    return this.learning.revisionById(id);
+  }
+}
+
+@Controller('admin/learning')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@ContentManagementRoles()
+export class AdminLearningController {
+  constructor(private readonly content: AdminLearningContentService) {}
+
+  @Get('videos')
+  videos(@Query() query: AdminVideoListDto) {
+    return this.content.videos(query);
+  }
+
+  @Post('videos')
+  createVideo(@Body() dto: VideoDto) {
+    return this.content.createVideo(dto);
+  }
+
+  @Patch('videos/:id')
+  updateVideo(@Param('id') id: string, @Body() dto: UpdateVideoDto) {
+    return this.content.updateVideo(id, dto);
+  }
+
+  @Get('revision')
+  revision(@Query() query: AdminRevisionListDto) {
+    return this.content.revision(query);
+  }
+
+  @Post('revision')
+  createRevision(@Body() dto: RevisionDto) {
+    return this.content.createRevision(dto);
+  }
+
+  @Patch('revision/:id')
+  updateRevision(@Param('id') id: string, @Body() dto: UpdateRevisionDto) {
+    return this.content.updateRevision(id, dto);
+  }
+}

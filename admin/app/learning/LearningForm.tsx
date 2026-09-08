@@ -1,4 +1,179 @@
 'use client';
-import {useEffect,useState}from'react';
-const api=process.env.NEXT_PUBLIC_API_URL!;type Item={id:string;name:string};
-export function LearningForm({kind,editing,onSaved,onCancel}:{kind:'videos'|'revision';editing?:any;onSaved:()=>void;onCancel:()=>void}){const[f,setF]=useState<any>(editing||{isFree:true,isPublished:false,isActive:true,provider:'LOCAL',type:'FORMULA'}),[sets,setSets]=useState<Record<string,Item[]>>({}),[error,setError]=useState('');const set=(k:string,v:any)=>setF((x:any)=>{const n={...x,[k]:v};if(k==='examId')Object.assign(n,{subjectId:'',academicClassId:'',chapterId:'',topicId:'',subtopicId:''});if(k==='subjectId')Object.assign(n,{academicClassId:'',chapterId:'',topicId:'',subtopicId:''});if(k==='academicClassId')Object.assign(n,{chapterId:'',topicId:'',subtopicId:''});if(k==='chapterId')Object.assign(n,{topicId:'',subtopicId:''});if(k==='topicId')n.subtopicId='';return n});const load=async(path:string,key:string)=>{const r=await fetch(`${api}/academics/${path}`);if(r.ok){const j=await r.json();setSets(x=>({...x,[key]:j.data||[]}))}};useEffect(()=>{load('exams','examId')},[]);useEffect(()=>{if(f.examId)load(`subjects?examId=${f.examId}`,'subjectId')},[f.examId]);useEffect(()=>{if(f.subjectId)load(`classes?subjectId=${f.subjectId}`,'academicClassId')},[f.subjectId]);useEffect(()=>{if(f.academicClassId)load(`chapters?classId=${f.academicClassId}`,'chapterId')},[f.academicClassId]);useEffect(()=>{if(f.chapterId)load(`topics?chapterId=${f.chapterId}`,'topicId')},[f.chapterId]);useEffect(()=>{if(f.topicId)load(`subtopics?topicId=${f.topicId}`,'subtopicId')},[f.topicId]);const select=(k:string,l:string,required=true)=><select required={required} value={f[k]||''} onChange={e=>set(k,e.target.value)}><option value="">Select {l}</option>{(sets[k]||[]).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>;const save=async(e:React.FormEvent)=>{e.preventDefault();const r=await fetch(`${api}/admin/learning/${kind}${editing?'/'+editing.id:''}`,{method:editing?'PATCH':'POST',headers:{'content-type':'application/json',Authorization:`Bearer ${JSON.parse(localStorage.getItem('synapse_tokens')||'{}').accessToken}`},body:JSON.stringify({...f,durationSeconds:f.durationSeconds?Number(f.durationSeconds):undefined,displayOrder:Number(f.displayOrder||0)})});if(!r.ok){setError('Unable to save. Verify required hierarchy fields.');return}onSaved()};return <form className="card" onSubmit={save}><h2>{editing?'Edit':'Create'} {kind==='videos'?'video':'revision item'}</h2>{error&&<p>{error}</p>}<div className="row"><input required placeholder="Title" value={f.title||''} onChange={e=>set('title',e.target.value)}/>{kind==='videos'&&<input required placeholder="Slug" value={f.slug||''} onChange={e=>set('slug',e.target.value)}/>} {select('examId','Exam')}{select('subjectId','Subject')}{select('academicClassId','Class')}{select('chapterId','Chapter')}{select('topicId','Topic')}{select('subtopicId','Subtopic',false)}</div>{kind==='videos'?<div className="row"><textarea placeholder="Description" value={f.description||''} onChange={e=>set('description',e.target.value)}/><input placeholder="Instructor" value={f.instructorName||''} onChange={e=>set('instructorName',e.target.value)}/><select value={f.provider} onChange={e=>set('provider',e.target.value)}><option>LOCAL</option><option>MOCK</option></select><input required placeholder="Provider asset / URL" value={f.providerAssetId||''} onChange={e=>set('providerAssetId',e.target.value)}/><input type="number" min="0" placeholder="Duration" onChange={e=>set('durationSeconds',e.target.value)}/></div>:<div><select value={f.type} onChange={e=>set('type',e.target.value)}>{['FORMULA','REACTION','BIOLOGY_FACT','NCERT_HIGHLIGHT','SHORT_NOTE'].map(x=><option key={x}>{x}</option>)}</select><textarea required placeholder="Content" value={f.content||''} onChange={e=>set('content',e.target.value)}/></div>}<label><input type="checkbox" checked={!!f.isPublished} onChange={e=>set('isPublished',e.target.checked)}/> Published</label><label><input type="checkbox" checked={!!f.isActive} onChange={e=>set('isActive',e.target.checked)}/> Active</label>{kind==='videos'&&<label><input type="checkbox" checked={!!f.isFree} onChange={e=>set('isFree',e.target.checked)}/> Free</label>}<button>Save</button><button type="button" onClick={onCancel}>Cancel</button></form>}
+
+import { useState } from 'react';
+import { adminMutation } from '../../lib/api';
+import { HierarchySelector } from './HierarchySelector';
+import { MediaAssetSelector } from './MediaAssetSelector';
+import type { HierarchyValue, RevisionItem, RevisionType, VideoItem } from './cms-types';
+
+type Kind = 'videos' | 'revision';
+type VideoDraft = HierarchyValue & {
+  title: string;
+  slug: string;
+  description: string;
+  instructorName: string;
+  provider: string;
+  providerAssetId: string;
+  playbackId: string;
+  mediaAssetId: string | null;
+  durationSeconds: number | '';
+  displayOrder: number | '';
+  isFree: boolean;
+  isPublished: boolean;
+  isActive: boolean;
+};
+type RevisionDraft = HierarchyValue & {
+  title: string;
+  type: RevisionType;
+  content: string;
+  displayOrder: number | '';
+  isPublished: boolean;
+  isActive: boolean;
+};
+
+const revisionTypes: RevisionType[] = [
+  'FORMULA',
+  'REACTION',
+  'BIOLOGY_FACT',
+  'NCERT_HIGHLIGHT',
+  'SHORT_NOTE',
+];
+
+const emptyVideo: VideoDraft = {
+  title: '', slug: '', description: '', instructorName: '', provider: 'LOCAL',
+  providerAssetId: '', playbackId: '', durationSeconds: '', displayOrder: 0,
+  mediaAssetId: null,
+  isFree: true, isPublished: false, isActive: true,
+};
+const emptyRevision: RevisionDraft = {
+  title: '', type: 'FORMULA', content: '', displayOrder: 0,
+  isPublished: false, isActive: true,
+};
+
+function videoDraft(item?: VideoItem): VideoDraft {
+  return item
+    ? {
+        ...emptyVideo,
+        ...item,
+        description: item.description ?? '',
+        instructorName: item.instructorName ?? '',
+        playbackId: item.playbackId ?? '',
+        mediaAssetId: item.mediaAssetId ?? null,
+        durationSeconds: item.durationSeconds ?? '',
+      }
+    : emptyVideo;
+}
+
+function revisionDraft(item?: RevisionItem): RevisionDraft {
+  return item ? { ...emptyRevision, ...item } : emptyRevision;
+}
+
+export function LearningForm({
+  kind,
+  editing,
+  onSaved,
+  onCancel,
+}: {
+  kind: Kind;
+  editing?: VideoItem | RevisionItem;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const isVideo = kind === 'videos';
+  const [video, setVideo] = useState<VideoDraft>(() =>
+    videoDraft(isVideo ? editing as VideoItem | undefined : undefined),
+  );
+  const [revision, setRevision] = useState<RevisionDraft>(() =>
+    revisionDraft(!isVideo ? editing as RevisionItem | undefined : undefined),
+  );
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const form = isVideo ? video : revision;
+
+  const update = <K extends keyof (VideoDraft & RevisionDraft)>(
+    key: K,
+    value: (VideoDraft & RevisionDraft)[K],
+  ) => {
+    if (isVideo) setVideo((current) => ({ ...current, [key]: value } as VideoDraft));
+    else setRevision((current) => ({ ...current, [key]: value } as RevisionDraft));
+  };
+
+  const updateHierarchy = (next: HierarchyValue) => {
+    if (isVideo) setVideo((current) => ({ ...current, ...next }));
+    else setRevision((current) => ({ ...current, ...next }));
+  };
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      const path = `/admin/learning/${kind}${editing ? `/${editing.id}` : ''}`;
+      const method = editing ? 'PATCH' : 'POST';
+      const body = isVideo
+        ? {
+            ...video,
+            durationSeconds: video.durationSeconds === '' ? undefined : Number(video.durationSeconds),
+            displayOrder: video.displayOrder === '' ? 0 : Number(video.displayOrder),
+            playbackId: video.playbackId || undefined,
+            description: video.description || undefined,
+            instructorName: video.instructorName || undefined,
+            subtopicId: video.subtopicId || undefined,
+          }
+        : {
+            ...revision,
+            displayOrder: revision.displayOrder === '' ? 0 : Number(revision.displayOrder),
+            subtopicId: revision.subtopicId || undefined,
+          };
+      await adminMutation(path, method, body);
+      onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to save this item.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form className="card" onSubmit={submit}>
+      <h2>{editing ? 'Edit' : 'Create'} {isVideo ? 'video' : 'revision item'}</h2>
+      {error && <p>{error}</p>}
+      <div className="row">
+        <input required placeholder="Title" value={form.title} onChange={(event) => update('title', event.target.value)} />
+        {isVideo && (
+          <input required placeholder="Slug" value={video.slug} onChange={(event) => update('slug', event.target.value)} />
+        )}
+        <HierarchySelector value={form} onChange={updateHierarchy} />
+      </div>
+      {isVideo ? (
+        <div className="row">
+          <textarea placeholder="Description" value={video.description} onChange={(event) => update('description', event.target.value)} />
+          <input placeholder="Instructor" value={video.instructorName} onChange={(event) => update('instructorName', event.target.value)} />
+          <select value={video.provider} onChange={(event) => update('provider', event.target.value)}>
+            <option value="LOCAL">LOCAL</option><option value="MOCK">MOCK</option>
+            <option value="MUX">MUX</option><option value="CLOUDFLARE_STREAM">CLOUDFLARE_STREAM</option>
+          </select>
+          <input required placeholder="Provider asset / URL" value={video.providerAssetId} onChange={(event) => update('providerAssetId', event.target.value)} />
+          <input placeholder="Playback ID" value={video.playbackId} onChange={(event) => update('playbackId', event.target.value)} />
+          <MediaAssetSelector value={video.mediaAssetId} onChange={(value) => update('mediaAssetId', value)} />
+          <input type="number" min="0" placeholder="Duration seconds" value={video.durationSeconds} onChange={(event) => update('durationSeconds', event.target.value === '' ? '' : Number(event.target.value))} />
+        </div>
+      ) : (
+        <div className="row">
+          <select value={revision.type} onChange={(event) => update('type', event.target.value as RevisionType)}>
+            {revisionTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+          </select>
+          <textarea required placeholder="Content" value={revision.content} onChange={(event) => update('content', event.target.value)} />
+        </div>
+      )}
+      <div className="row">
+        <input type="number" min="0" placeholder="Display order" value={form.displayOrder} onChange={(event) => update('displayOrder', event.target.value === '' ? '' : Number(event.target.value))} />
+        <label><input type="checkbox" checked={form.isPublished} onChange={(event) => update('isPublished', event.target.checked)} /> Published</label>
+        <label><input type="checkbox" checked={form.isActive} onChange={(event) => update('isActive', event.target.checked)} /> Active</label>
+        {isVideo && <label><input type="checkbox" checked={video.isFree} onChange={(event) => update('isFree', event.target.checked)} /> Free</label>}
+      </div>
+      <button disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>{' '}
+      <button type="button" onClick={onCancel} disabled={saving}>Cancel</button>
+    </form>
+  );
+}

@@ -9,6 +9,8 @@ import { AcademicsModule } from './modules/academics/academics.module';
 import { AuthModule } from './modules/identity/auth/auth.module';
 import { LearningModule } from './modules/learning/learning.module';
 import { FlashcardsModule } from './modules/flashcards/flashcards.module';
+import { MediaAssetsModule } from './modules/media-assets/media-assets.module';
+import { ContentImportsModule } from './modules/content-imports/content-imports.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { FlashcardsModule } from './modules/flashcards/flashcards.module';
     AcademicsModule,
     LearningModule,
     FlashcardsModule,
+    MediaAssetsModule,
+    ContentImportsModule,
   ],
   controllers: [HealthController],
   providers: [

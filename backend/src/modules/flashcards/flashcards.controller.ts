@@ -1,1 +1,76 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'; import { ApiBearerAuth, ApiTags } from '@nestjs/swagger'; import { RoleName } from '@prisma/client'; import { Roles } from '../../shared/decorators/roles.decorator'; import { RolesGuard } from '../../shared/guards/roles.guard'; import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard'; import { FlashcardDto, FlashcardFilterDto, ReviewDto } from './flashcards.dto'; import { FlashcardsService } from './flashcards.service';@ApiTags('flashcards')@ApiBearerAuth()@UseGuards(JwtAuthGuard)@Controller('learning/flashcards')export class FlashcardsController{constructor(private s:FlashcardsService){}@Get()list(@Query()q:FlashcardFilterDto){return this.s.list(q)}@Get('session')session(@Query()q:FlashcardFilterDto){return this.s.session(q)}@Get(':id')one(@Param('id')id:string){return this.s.one(id)}@Post(':id/review')review(@Req()r:any,@Param('id')id:string,@Body()d:ReviewDto){return this.s.review(r.user.id,id,d)}}@ApiTags('admin flashcards')@ApiBearerAuth()@UseGuards(JwtAuthGuard,RolesGuard)@Roles(RoleName.ADMIN,RoleName.SUPER_ADMIN)@Controller('admin/learning/flashcards')export class AdminFlashcardsController{constructor(private s:FlashcardsService){}@Get()list(){return this.s.adminList()}@Post()create(@Body()d:FlashcardDto){return this.s.create(d)}@Patch(':id')update(@Param('id')id:string,@Body()d:Partial<FlashcardDto>){return this.s.update(id,d)}}
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { ContentManagementRoles } from '../../shared/decorators/content-management-roles.decorator';
+import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
+import { RolesGuard } from '../../shared/guards/roles.guard';
+import {
+  AdminFlashcardListDto,
+  FlashcardDto,
+  FlashcardFilterDto,
+  ReviewDto,
+  UpdateFlashcardDto,
+} from './flashcards.dto';
+import { FlashcardsService } from './flashcards.service';
+
+type AuthenticatedUser = { id: string };
+
+@Controller('learning/flashcards')
+@UseGuards(JwtAuthGuard)
+export class FlashcardsController {
+  constructor(private readonly flashcards: FlashcardsService) {}
+
+  @Get()
+  list(@Query() query: FlashcardFilterDto) {
+    return this.flashcards.list(query);
+  }
+
+  @Get('session')
+  session(@Query() query: FlashcardFilterDto) {
+    return this.flashcards.session(query);
+  }
+
+  @Get(':id')
+  one(@Param('id') id: string) {
+    return this.flashcards.one(id);
+  }
+
+  @Post(':id/review')
+  review(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id') id: string,
+    @Body() dto: ReviewDto,
+  ) {
+    return this.flashcards.review(request.user.id, id, dto);
+  }
+}
+
+@Controller('admin/learning/flashcards')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@ContentManagementRoles()
+export class AdminFlashcardsController {
+  constructor(private readonly flashcards: FlashcardsService) {}
+
+  @Get()
+  list(@Query() query: AdminFlashcardListDto) {
+    return this.flashcards.adminList(query);
+  }
+
+  @Post()
+  create(@Body() dto: FlashcardDto) {
+    return this.flashcards.create(dto);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateFlashcardDto) {
+    return this.flashcards.update(id, dto);
+  }
+}
