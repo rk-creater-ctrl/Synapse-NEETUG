@@ -53,6 +53,44 @@ export type FlashcardItem = HierarchyValue &
     isPremium: boolean;
   };
 
+export type QuestionType = 'SINGLE_CORRECT_MCQ';
+export type QuestionSourceType = 'CURATED' | 'PYQ';
+export type QuestionDifficulty = 'EASY' | 'MEDIUM' | 'HARD';
+
+export type QuestionOption = {
+  id?: string;
+  position: number;
+  text: string;
+  isCorrect: boolean;
+};
+
+export type QuestionPyqMetadata = {
+  sourceExam: string;
+  year: number;
+  sessionKey: string;
+  paperKey: string;
+  questionNumber: number;
+  sourceNote?: string | null;
+};
+
+export type QuestionItem = HierarchyValue &
+  ContentStatus & {
+    id: string;
+    type: QuestionType;
+    sourceType: QuestionSourceType;
+    stem: string;
+    explanation: string;
+    difficulty: QuestionDifficulty;
+    tags: string[];
+    displayOrder: number;
+    isFree: boolean;
+    importKey?: string | null;
+    mediaAssetId?: string | null;
+    solutionVideoId?: string | null;
+    options: QuestionOption[];
+    pyqMetadata?: QuestionPyqMetadata | null;
+  };
+
 export type RevisionType =
   | 'FORMULA'
   | 'REACTION'
@@ -80,7 +118,8 @@ export type ContentImportTarget =
   | 'ACADEMIC_SUBTOPIC'
   | 'VIDEO'
   | 'REVISION_ITEM'
-  | 'FLASHCARD';
+  | 'FLASHCARD'
+  | 'QUESTION';
 
 export type ContentImportDuplicateStrategy = 'ERROR' | 'SKIP' | 'UPDATE';
 export type ContentImportStatus = 'PREVIEWED' | 'APPLYING' | 'APPLIED' | 'FAILED';
@@ -142,6 +181,9 @@ export type ContentFilters = {
   isPremium?: boolean;
   type?: RevisionType;
   provider?: string;
+  sourceType?: QuestionSourceType;
+  difficulty?: QuestionDifficulty;
+  pyqYear?: number;
 };
 
 export const defaultContentFilters: ContentFilters = {

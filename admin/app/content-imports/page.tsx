@@ -173,6 +173,45 @@ const targetConfigs: TargetConfig[] = [
     naturalKey: 'No deterministic import update key; ERROR only.',
     errorOnlyDuplicateStrategy: true,
   },
+  {
+    value: 'QUESTION',
+    label: 'Question / PYQ',
+    requiredColumns: [
+      'source_type',
+      'question_text',
+      'option_a',
+      'option_b',
+      'option_c',
+      'option_d',
+      'correct_option',
+      'explanation',
+      'difficulty',
+      'exam_slug',
+      'subject_slug',
+      'class_slug',
+      'chapter_slug',
+      'topic_slug',
+    ],
+    optionalColumns: [
+      'subtopic_slug',
+      'tags',
+      'display_order',
+      'is_active',
+      'is_published',
+      'is_free',
+      'solution_video_slug',
+      'media_provider',
+      'media_external_key',
+      'import_key (CURATED)',
+      'source_exam (PYQ)',
+      'pyq_year (PYQ)',
+      'pyq_session (PYQ)',
+      'pyq_paper (PYQ)',
+      'question_number (PYQ)',
+      'source_note (PYQ)',
+    ],
+    naturalKey: 'CURATED: import_key. PYQ: source_exam + pyq_year + pyq_session + pyq_paper + question_number.',
+  },
 ];
 
 const strategyOptions: Array<{
@@ -509,6 +548,13 @@ export default function ContentImportsPage() {
         <p>
           <strong>Natural key:</strong> {targetConfig.naturalKey}
         </p>
+        {target === 'QUESTION' ? (
+          <p>
+            Use <strong>CURATED</strong> or <strong>PYQ</strong> for source_type.
+            correct_option accepts A, B, C, D, 1, 2, 3, or 4. CURATED SKIP/UPDATE
+            requires import_key; PYQ identity requires every PYQ-specific field.
+          </p>
+        ) : null}
       </section>
 
       {formError ? <p role="alert">{formError}</p> : null}

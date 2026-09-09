@@ -43,6 +43,9 @@ function createDb() {
     topic: { findUnique: jest.fn() },
     subtopic: { findUnique: jest.fn() },
     video: { findUnique: jest.fn() },
+    mediaAsset: { findUnique: jest.fn() },
+    question: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+    questionPyqMetadata: { findUnique: jest.fn() },
     contentImportJob: {
       create: jest.fn(),
       updateMany: jest.fn(),
@@ -219,6 +222,113 @@ describe('ContentImportsService preview', () => {
       buffer: Buffer.from('title,slug,provider_asset_id,exam_slug,subject_slug,class_slug,chapter_slug,topic_slug\nUnits,units,asset-1,missing,physics,class-11,units,physical-quantities'),
     });
     expect(missingParent.rows[0]).toEqual(expect.objectContaining({
+      status: ContentImportRowStatus.INVALID,
+      errorCode: 'IMPORT_ROW_INVALID',
+    }));
+  });
+});
+
+describe('ContentImportsService Question imports', () => {
+  const questionHeaders = [
+    'source_type', 'question_text', 'option_a', 'option_b', 'option_c', 'option_d',
+    'correct_option', 'explanation', 'difficulty', 'exam_slug', 'subject_slug',
+    'class_slug', 'chapter_slug', 'topic_slug',
+  ].join(',');
+  const curatedRow = [
+    'CURATED', 'What is an SI unit?', 'Metre', 'Second', 'Kelvin', 'Mole', 'A',
+    'Metre is the SI unit of length.', 'EASY', 'neet', 'physics', 'class-11',
+    'units', 'physical-quantities',
+  ].join(',');
+
+  const prepareHierarchy = (db: ReturnType<typeof createDb>) => {
+    db.exam.findUnique.mockResolvedValue({ id: 'exam-1' });
+    db.subject.findUnique.mockResolvedValue({ id: 'subject-1' });
+    db.academicClass.findUnique.mockResolvedValue({ id: 'class-1' });
+    db.chapter.findUnique.mockResolvedValue({ id: 'chapter-1' });
+    db.topic.findUnique.mockResolvedValue({ id: 'topic-1' });
+  };
+
+  const persistPreview = (db: ReturnType<typeof createDb>) => {
+    db.contentImportJob.create.mockImplementation(async ({ data }: { data: { rows: { create: unknown[] } } }) => ({
+      id: 'question-job', status: ContentImportStatus.PREVIEWED, ...data, rows: data.rows.create,
+    }));
+  };
+
+  it('previews a valid curated Question without creating Question records', async () => {
+    const db = createDb();
+    prepareHierarchy(db);
+    persistPreview(db);
+    db.question.findUnique.mockResolvedValue(null);
+    const service = new ContentImportsService(db as never);
+
+    const preview = await service.preview('actor-from-jwt', {
+      target: ContentImportTarget.QUESTION,
+      duplicateStrategy: ContentImportDuplicateStrategy.ERROR,
+    }, {
+      originalname: 'questions.csv', size: 512, buffer: Buffer.from(`${questionHeaders},import_key\n${curatedRow},physics-si-unit-001`),
+    });
+
+    expect(preview.summary).toEqual(expect.objectContaining({ validRows: 1, invalidRows: 0 }));
+    expect(db.question.create).not.toHaveBeenCalled();
+  });
+
+  it.each(['A', 'B', 'C', 'D', '1', '2', '3', '4'])('accepts correct_option %s', async (correctOption) => {
+    const db = createDb();
+    prepareHierarchy(db);
+    persistPreview(db);
+    db.question.findUnique.mockResolvedValue(null);
+    const service = new ContentImportsService(db as never);
+
+    const preview = await service.preview('actor', {
+      target: ContentImportTarget.QUESTION,
+      duplicateStrategy: ContentImportDuplicateStrategy.ERROR,
+    }, {
+      originalname: 'questions.csv', size: 512,
+      buffer: Buffer.from(`${questionHeaders}\n${curatedRow.replace(',A,', `,${correctOption},`)}`),
+    });
+
+    expect(preview.rows[0]).toEqual(expect.objectContaining({ status: ContentImportRowStatus.VALID }));
+  });
+
+  it('reports invalid correct_option and missing PYQ identity as preview row errors', async () => {
+    const db = createDb();
+    prepareHierarchy(db);
+    persistPreview(db);
+    const service = new ContentImportsService(db as never);
+
+    const invalidOption = await service.preview('actor', {
+      target: ContentImportTarget.QUESTION,
+      duplicateStrategy: ContentImportDuplicateStrategy.ERROR,
+    }, {
+      originalname: 'questions.csv', size: 512,
+      buffer: Buffer.from(`${questionHeaders}\n${curatedRow.replace(',A,', ',Z,')}`),
+    });
+    const missingPyqIdentity = await service.preview('actor', {
+      target: ContentImportTarget.QUESTION,
+      duplicateStrategy: ContentImportDuplicateStrategy.ERROR,
+    }, {
+      originalname: 'questions.csv', size: 512,
+      buffer: Buffer.from(`${questionHeaders}\n${curatedRow.replace('CURATED', 'PYQ')}`),
+    });
+
+    expect(invalidOption.rows[0]).toEqual(expect.objectContaining({ errorCode: 'IMPORT_INVALID_CORRECT_OPTION' }));
+    expect(missingPyqIdentity.rows[0]).toEqual(expect.objectContaining({ errorCode: 'IMPORT_PYQ_IDENTITY_REQUIRED' }));
+  });
+
+  it('requires a curated import_key for SKIP and UPDATE strategies', async () => {
+    const db = createDb();
+    prepareHierarchy(db);
+    persistPreview(db);
+    const service = new ContentImportsService(db as never);
+
+    const preview = await service.preview('actor', {
+      target: ContentImportTarget.QUESTION,
+      duplicateStrategy: ContentImportDuplicateStrategy.UPDATE,
+    }, {
+      originalname: 'questions.csv', size: 512, buffer: Buffer.from(`${questionHeaders}\n${curatedRow}`),
+    });
+
+    expect(preview.rows[0]).toEqual(expect.objectContaining({
       status: ContentImportRowStatus.INVALID,
       errorCode: 'IMPORT_ROW_INVALID',
     }));

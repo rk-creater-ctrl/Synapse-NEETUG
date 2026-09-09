@@ -2,9 +2,15 @@
 
 import type { ChangeEvent } from 'react';
 import { HierarchySelector } from './HierarchySelector';
-import type { ContentFilters as Filters, HierarchyValue, RevisionType } from './cms-types';
+import type {
+  ContentFilters as Filters,
+  HierarchyValue,
+  QuestionDifficulty,
+  QuestionSourceType,
+  RevisionType,
+} from './cms-types';
 
-type FilterKind = 'videos' | 'revision' | 'flashcards';
+type FilterKind = 'videos' | 'revision' | 'flashcards' | 'questions';
 
 const revisionTypes: RevisionType[] = [
   'FORMULA',
@@ -13,6 +19,9 @@ const revisionTypes: RevisionType[] = [
   'NCERT_HIGHLIGHT',
   'SHORT_NOTE',
 ];
+
+const questionDifficulties: QuestionDifficulty[] = ['EASY', 'MEDIUM', 'HARD'];
+const questionSources: QuestionSourceType[] = ['CURATED', 'PYQ'];
 
 const booleanValue = (event: ChangeEvent<HTMLSelectElement>): boolean | undefined => {
   if (event.target.value === '') return undefined;
@@ -107,6 +116,32 @@ export function ContentFilters({
           <option value="MUX">MUX</option>
           <option value="CLOUDFLARE_STREAM">CLOUDFLARE_STREAM</option>
         </select>
+      )}
+      {kind === 'questions' && (
+        <>
+          <select
+            value={value.sourceType ?? ''}
+            onChange={(event) => update('sourceType', event.target.value as QuestionSourceType || undefined)}
+          >
+            <option value="">All sources</option>
+            {questionSources.map((source) => <option key={source} value={source}>{source}</option>)}
+          </select>
+          <select
+            value={value.difficulty ?? ''}
+            onChange={(event) => update('difficulty', event.target.value as QuestionDifficulty || undefined)}
+          >
+            <option value="">All difficulties</option>
+            {questionDifficulties.map((difficulty) => <option key={difficulty} value={difficulty}>{difficulty}</option>)}
+          </select>
+          <input
+            type="number"
+            min="1900"
+            max="2100"
+            placeholder="PYQ year"
+            value={value.pyqYear ?? ''}
+            onChange={(event) => update('pyqYear', event.target.value === '' ? undefined : Number(event.target.value))}
+          />
+        </>
       )}
     </div>
   );

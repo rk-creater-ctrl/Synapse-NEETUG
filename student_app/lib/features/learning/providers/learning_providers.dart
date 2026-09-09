@@ -12,3 +12,15 @@ final topicRevisionProvider = FutureProvider.family<List<RevisionItem>, String>(
 final chapterTopicsProvider =
     FutureProvider.family<List<LearningTopic>, String>(
         (ref, id) => ref.read(learningApiProvider).chapter(id));
+
+final questionPageProvider = FutureProvider.family<QuestionPage, QuestionFilters>(
+  (ref, filters) => ref.read(learningApiProvider).questions(filters),
+);
+
+final practiceSessionProvider = FutureProvider.family<PracticeSession, String>(
+  (ref, id) => ref.read(learningApiProvider).practiceSession(id),
+);
+
+final practiceHistoryProvider = FutureProvider.family<PracticeHistoryPage, int>(
+  (ref, page) => ref.read(learningApiProvider).practiceHistory(page: page),
+);

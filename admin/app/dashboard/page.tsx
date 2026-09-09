@@ -20,6 +20,7 @@ export default function DashboardPage() {
         <li><Link href="/learning/videos">Videos</Link></li>
         <li><Link href="/learning/revision">Revision content</Link></li>
         <li><Link href="/learning/flashcards">Flashcards</Link></li>
+        <li><Link href="/learning/questions">QBank questions</Link></li>
         <li><Link href="/media-assets">Media assets</Link></li>
         <li><Link href="/content-imports">Bulk content import</Link></li>
       </ul>

@@ -49,6 +49,7 @@ enum ContentImportTarget {
   VIDEO
   REVISION_ITEM
   FLASHCARD
+  QUESTION
 }
 
 enum ContentImportStatus {
@@ -72,6 +73,27 @@ enum ContentImportRowStatus {
   FAILED
 }
 
+enum QuestionType {
+  SINGLE_CORRECT_MCQ
+}
+
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum QuestionSourceType {
+  CURATED
+  PYQ
+}
+
+enum QuestionPracticeSessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
 model User {
   id                String              @id @default(cuid())
   email             String              @unique
@@ -86,6 +108,7 @@ model User {
   studentProfile    StudentProfile?
   videoProgress     VideoProgress[]
   flashcardProgress FlashcardProgress[]
+  questionPracticeSessions QuestionPracticeSession[]
   contentImportJobs ContentImportJob[]
   contentAuditEvents ContentAuditEvent[]
 }
@@ -171,6 +194,7 @@ model Exam {
   videos        Video[]
   revisionItems RevisionItem[]
   flashcards    Flashcard[]
+  questions     Question[]
 
   @@index([isActive, displayOrder])
 }
@@ -190,6 +214,7 @@ model Subject {
   videos        Video[]
   revisionItems RevisionItem[]
   flashcards    Flashcard[]
+  questions     Question[]
 
   @@unique([examId, slug])
   @@index([examId, isActive])
@@ -210,6 +235,7 @@ model AcademicClass {
   videos        Video[]
   revisionItems RevisionItem[]
   flashcards    Flashcard[]
+  questions     Question[]
 
   @@unique([subjectId, slug])
   @@index([subjectId, isActive])
@@ -230,6 +256,7 @@ model Chapter {
   videos        Video[]
   revisionItems RevisionItem[]
   flashcards    Flashcard[]
+  questions     Question[]
 
   @@unique([classId, slug])
   @@index([classId, isActive])
@@ -250,6 +277,7 @@ model Topic {
   videos        Video[]
   revisionItems RevisionItem[]
   flashcards    Flashcard[]
+  questions     Question[]
 
   @@unique([chapterId, slug])
   @@index([chapterId, isActive])
@@ -269,6 +297,7 @@ model Subtopic {
   videos        Video[]
   revisionItems RevisionItem[]
   flashcards    Flashcard[]
+  questions     Question[]
 
   @@unique([topicId, slug])
   @@index([topicId, isActive])
@@ -287,6 +316,7 @@ model MediaAsset {
   updatedAt   DateTime    @updatedAt
   videos      Video[]
   flashcards  Flashcard[]
+  questions   Question[]
 
   @@unique([provider, externalKey])
   @@index([provider, isActive])
@@ -326,6 +356,7 @@ model Video {
   subtopic        Subtopic?       @relation(fields: [subtopicId], references: [id])
   mediaAsset      MediaAsset?     @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
   progress        VideoProgress[]
+  solutionForQuestions Question[] @relation("QuestionSolutionVideo")
 
   @@index([chapterId, isPublished, isActive, displayOrder])
   @@index([topicId, isPublished, isActive, displayOrder])
@@ -426,6 +457,114 @@ model FlashcardProgress {
 
   @@unique([studentId, flashcardId])
   @@index([studentId, lastReviewedAt])
+}
+
+model Question {
+  id              String             @id @default(cuid())
+  type            QuestionType       @default(SINGLE_CORRECT_MCQ)
+  sourceType      QuestionSourceType @default(CURATED)
+  stem            String
+  explanation     String
+  difficulty      QuestionDifficulty @default(MEDIUM)
+  tags            String[]
+  displayOrder    Int                @default(0)
+  isPublished     Boolean            @default(false)
+  isActive        Boolean            @default(true)
+  isFree          Boolean            @default(true)
+  importKey       String?            @unique
+  examId          String
+  subjectId       String
+  academicClassId String
+  chapterId       String
+  topicId         String
+  subtopicId      String?
+  mediaAssetId    String?
+  solutionVideoId String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  exam            Exam               @relation(fields: [examId], references: [id])
+  subject         Subject            @relation(fields: [subjectId], references: [id])
+  academicClass   AcademicClass      @relation(fields: [academicClassId], references: [id])
+  chapter         Chapter            @relation(fields: [chapterId], references: [id])
+  topic           Topic              @relation(fields: [topicId], references: [id])
+  subtopic        Subtopic?          @relation(fields: [subtopicId], references: [id])
+  mediaAsset      MediaAsset?        @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  solutionVideo   Video?             @relation("QuestionSolutionVideo", fields: [solutionVideoId], references: [id], onDelete: SetNull)
+  options         QuestionOption[]
+  pyqMetadata     QuestionPyqMetadata?
+  practiceItems   QuestionPracticeItem[]
+
+  @@index([topicId, isActive, isPublished, isFree, displayOrder])
+  @@index([chapterId, isActive, isPublished, displayOrder])
+  @@index([sourceType, difficulty])
+  @@index([mediaAssetId])
+  @@index([solutionVideoId])
+}
+
+model QuestionOption {
+  id                String                 @id @default(cuid())
+  questionId        String
+  position          Int
+  text              String
+  isCorrect         Boolean                @default(false)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  question          Question               @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedByItems   QuestionPracticeItem[] @relation("QuestionPracticeItemSelectedOption")
+
+  @@unique([questionId, position])
+}
+
+model QuestionPyqMetadata {
+  id             String   @id @default(cuid())
+  questionId     String   @unique
+  sourceExam     String
+  year           Int
+  sessionKey     String
+  paperKey       String
+  questionNumber Int
+  sourceNote     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  question       Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceExam, year, sessionKey, paperKey, questionNumber])
+  @@index([year, sourceExam])
+}
+
+model QuestionPracticeSession {
+  id              String                        @id @default(cuid())
+  studentId       String
+  selectedFilters Json
+  status          QuestionPracticeSessionStatus @default(IN_PROGRESS)
+  startedAt       DateTime                      @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime                      @default(now())
+  updatedAt       DateTime                      @updatedAt
+  student         User                          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  items           QuestionPracticeItem[]
+
+  @@index([studentId, status, startedAt])
+}
+
+model QuestionPracticeItem {
+  id               String                  @id @default(cuid())
+  sessionId        String
+  questionId       String
+  sequence         Int
+  selectedOptionId String?
+  isCorrect        Boolean?
+  timeSpentSeconds Int?
+  answeredAt       DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  session          QuestionPracticeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question         Question                @relation(fields: [questionId], references: [id])
+  selectedOption   QuestionOption?         @relation("QuestionPracticeItemSelectedOption", fields: [selectedOptionId], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, sequence])
+  @@unique([sessionId, questionId])
+  @@index([questionId])
 }
 
 model ContentImportJob {

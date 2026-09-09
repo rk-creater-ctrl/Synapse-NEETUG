@@ -10,6 +10,9 @@ import {
   ContentImportStatus,
   ContentImportTarget,
   Prisma,
+  QuestionDifficulty,
+  QuestionSourceType,
+  QuestionType,
   RevisionType,
   VideoProvider,
 } from '@prisma/client';
@@ -22,6 +25,7 @@ import {
 
 type ImportClient = PrismaService | Prisma.TransactionClient;
 type RowData = Record<string, string>;
+type NonQuestionImportTarget = Exclude<ContentImportTarget, 'QUESTION'>;
 type PreparedRow = { data: Record<string, unknown>; naturalKey: string };
 type RowResult = {
   rowNumber: number;
@@ -31,6 +35,36 @@ type RowResult = {
   errorMessage?: string;
 };
 type ApplyResult = { entity: Record<string, unknown>; action: 'CREATE' | 'UPDATE' | 'SKIP' };
+type QuestionImportData = {
+  type: QuestionType;
+  sourceType: QuestionSourceType;
+  stem: string;
+  explanation: string;
+  difficulty: QuestionDifficulty;
+  tags: string[];
+  displayOrder: number;
+  isActive: boolean;
+  isPublished: boolean;
+  isFree: boolean;
+  importKey?: string;
+  examId: string;
+  subjectId: string;
+  academicClassId: string;
+  chapterId: string;
+  topicId: string;
+  subtopicId?: string;
+  mediaAssetId?: string;
+  solutionVideoId?: string;
+  options: Array<{ position: number; text: string; isCorrect: boolean }>;
+  pyqMetadata?: {
+    sourceExam: string;
+    year: number;
+    sessionKey: string;
+    paperKey: string;
+    questionNumber: number;
+    sourceNote?: string;
+  };
+};
 
 const REQUIRED_HEADERS: Record<ContentImportTarget, string[]> = {
   ACADEMIC_EXAM: ['name', 'slug'],
@@ -42,6 +76,7 @@ const REQUIRED_HEADERS: Record<ContentImportTarget, string[]> = {
   VIDEO: ['title', 'slug', 'provider_asset_id', 'exam_slug', 'subject_slug', 'class_slug', 'chapter_slug', 'topic_slug'],
   REVISION_ITEM: ['title', 'type', 'content', 'exam_slug', 'subject_slug', 'class_slug', 'chapter_slug', 'topic_slug'],
   FLASHCARD: ['front_content', 'back_content', 'exam_slug', 'subject_slug', 'class_slug', 'chapter_slug', 'topic_slug'],
+  QUESTION: ['source_type', 'question_text', 'option_a', 'option_b', 'option_c', 'option_d', 'correct_option', 'explanation', 'difficulty', 'exam_slug', 'subject_slug', 'class_slug', 'chapter_slug', 'topic_slug'],
 };
 
 const UPDATE_SUPPORTED = new Set<ContentImportTarget>([
@@ -52,6 +87,7 @@ const UPDATE_SUPPORTED = new Set<ContentImportTarget>([
   ContentImportTarget.ACADEMIC_TOPIC,
   ContentImportTarget.ACADEMIC_SUBTOPIC,
   ContentImportTarget.VIDEO,
+  'QUESTION',
 ]);
 
 @Injectable()
@@ -70,7 +106,7 @@ export class ContentImportsService {
     for (const [index, row] of parsed.rows.entries()) {
       const rowNumber = index + 2;
       try {
-        const prepared = await this.prepare(dto.target, row, this.db);
+        const prepared = await this.prepare(dto.target, row, this.db, dto.duplicateStrategy, rowNumber);
         if (seen.has(prepared.naturalKey)) {
           throw this.rowError('IMPORT_DUPLICATE', 'Duplicate natural key within the import file.');
         }
@@ -184,7 +220,7 @@ export class ContentImportsService {
           if (row.status !== ContentImportRowStatus.VALID) {
             throw this.rowError('IMPORT_JOB_NOT_READY', 'Import rows are not ready to apply.');
           }
-          const prepared = await this.prepare(job.target, row.normalizedData as RowData, tx);
+          const prepared = await this.prepare(job.target, row.normalizedData as RowData, tx, job.duplicateStrategy);
           const applied = await this.applyPreparedRow(tx, job.target, prepared.data, job.duplicateStrategy);
           if (applied.action === 'SKIP') counters.skippedRows += 1;
           if (applied.action === 'CREATE') counters.insertedRows += 1;
@@ -262,13 +298,22 @@ export class ContentImportsService {
     }
   }
 
-  private async prepare(target: ContentImportTarget, row: RowData, client: ImportClient): Promise<PreparedRow> {
+  private async prepare(
+    target: ContentImportTarget,
+    row: RowData,
+    client: ImportClient,
+    strategy: ContentImportDuplicateStrategy = ContentImportDuplicateStrategy.ERROR,
+    rowNumber?: number,
+  ): Promise<PreparedRow> {
     this.assertRequiredValues(target, row);
     this.assertFieldLengths(row);
     if (target.startsWith('ACADEMIC_')) return this.prepareAcademic(target, row, client);
     const hierarchy = await this.resolveHierarchy(row, client);
     const states = this.states(row);
     const mediaAssetId = await this.resolveMediaAsset(row, client);
+    if (this.isQuestionTarget(target)) {
+      return this.prepareQuestion(row, client, hierarchy, states, mediaAssetId, strategy, rowNumber);
+    }
     if (target === ContentImportTarget.VIDEO) {
       const provider = this.videoProvider(row.provider || VideoProvider.LOCAL);
       return {
@@ -307,6 +352,87 @@ export class ContentImportsService {
     if (target === ContentImportTarget.ACADEMIC_EXAM) return { naturalKey: `exam:${row.slug}`, data: base };
     const hierarchy = await this.resolveAcademicParents(target, row, client);
     return { naturalKey: `${target}:${Object.values(hierarchy).join(':')}:${row.slug}`, data: { ...base, ...hierarchy } };
+  }
+
+  private async prepareQuestion(
+    row: RowData,
+    client: ImportClient,
+    hierarchy: {
+      examId: string;
+      subjectId: string;
+      academicClassId: string;
+      chapterId: string;
+      topicId: string;
+      subtopicId?: string;
+    },
+    states: { isActive: boolean; isPublished: boolean },
+    mediaAssetId: string | undefined,
+    strategy: ContentImportDuplicateStrategy,
+    rowNumber?: number,
+  ): Promise<PreparedRow> {
+    const sourceType = this.questionSourceType(row.source_type);
+    const difficulty = this.questionDifficulty(row.difficulty);
+    const correctPosition = this.correctOptionPosition(row.correct_option);
+    const options = [row.option_a, row.option_b, row.option_c, row.option_d].map(
+      (text, index) => ({
+        position: index + 1,
+        text: text.trim(),
+        isCorrect: index + 1 === correctPosition,
+      }),
+    );
+    if (options.some((option) => !option.text)) {
+      throw this.rowError('IMPORT_INVALID_OPTIONS', 'All four option fields must contain text.');
+    }
+
+    const solutionVideoId = await this.resolveSolutionVideo(row, hierarchy, client);
+    const importKey = this.optional(row.import_key);
+    let pyqMetadata: QuestionImportData['pyqMetadata'];
+    let naturalKey: string;
+
+    if (sourceType === QuestionSourceType.CURATED) {
+      if (!importKey && strategy !== ContentImportDuplicateStrategy.ERROR) {
+        throw this.rowError('IMPORT_ROW_INVALID', 'import_key is required for CURATED SKIP or UPDATE imports.');
+      }
+      naturalKey = importKey
+        ? `question:curated:${importKey}`
+        : `question:curated:unkeyed:${rowNumber ?? 'apply'}`;
+    } else {
+      const sourceExam = this.requiredPyqField(row.source_exam, 'source_exam');
+      const year = this.pyqYear(row.pyq_year);
+      const sessionKey = this.requiredPyqField(row.pyq_session, 'pyq_session');
+      const paperKey = this.requiredPyqField(row.pyq_paper, 'pyq_paper');
+      const questionNumber = this.pyqQuestionNumber(row.question_number);
+      pyqMetadata = {
+        sourceExam: this.normalizeKey(sourceExam),
+        year,
+        sessionKey: this.normalizeKey(sessionKey),
+        paperKey: this.normalizeKey(paperKey),
+        questionNumber,
+        sourceNote: this.optional(row.source_note),
+      };
+      naturalKey = `question:pyq:${pyqMetadata.sourceExam}:${year}:${pyqMetadata.sessionKey}:${pyqMetadata.paperKey}:${questionNumber}`;
+    }
+
+    return {
+      naturalKey,
+      data: {
+        ...hierarchy,
+        ...states,
+        type: QuestionType.SINGLE_CORRECT_MCQ,
+        sourceType,
+        stem: row.question_text.trim(),
+        explanation: row.explanation.trim(),
+        difficulty,
+        tags: this.tags(row.tags),
+        displayOrder: this.integer(row.display_order, 'display_order') ?? 0,
+        isFree: this.boolean(row.is_free, 'is_free', true),
+        ...(importKey ? { importKey } : {}),
+        ...(mediaAssetId ? { mediaAssetId } : {}),
+        ...(solutionVideoId ? { solutionVideoId } : {}),
+        options,
+        ...(pyqMetadata ? { pyqMetadata } : {}),
+      },
+    };
   }
 
   private async resolveHierarchy(row: RowData, client: ImportClient) {
@@ -358,6 +484,35 @@ export class ContentImportsService {
     return asset.id;
   }
 
+  private async resolveSolutionVideo(
+    row: RowData,
+    hierarchy: {
+      examId: string;
+      subjectId: string;
+      academicClassId: string;
+      chapterId: string;
+      topicId: string;
+      subtopicId?: string;
+    },
+    client: ImportClient,
+  ): Promise<string | undefined> {
+    const slug = this.optional(row.solution_video_slug);
+    if (!slug) return undefined;
+    const video = await client.video.findUnique({ where: { slug } });
+    if (!video) throw this.rowError('IMPORT_ROW_INVALID', 'solution_video_slug does not resolve to a video.');
+    if (!video.isActive || !video.isPublished) {
+      throw this.rowError('IMPORT_ROW_INVALID', 'The solution video must be active and published.');
+    }
+    const matches = video.examId === hierarchy.examId
+      && video.subjectId === hierarchy.subjectId
+      && video.academicClassId === hierarchy.academicClassId
+      && video.chapterId === hierarchy.chapterId
+      && video.topicId === hierarchy.topicId
+      && (!video.subtopicId || video.subtopicId === hierarchy.subtopicId);
+    if (!matches) throw this.rowError('IMPORT_ROW_INVALID', 'The solution video does not match the question hierarchy.');
+    return video.id;
+  }
+
   private async findExisting(target: ContentImportTarget, data: Record<string, unknown>, client: ImportClient): Promise<Record<string, unknown> | null> {
     switch (target) {
       case ContentImportTarget.ACADEMIC_EXAM: return client.exam.findUnique({ where: { slug: String(data.slug) } }) as Promise<Record<string, unknown> | null>;
@@ -377,6 +532,28 @@ export class ContentImportsService {
         if (matches.length > 1) throw this.rowError('IMPORT_DUPLICATE', 'Flashcard natural key is ambiguous.');
         return (matches[0] ?? null) as Record<string, unknown> | null;
       }
+      case 'QUESTION': {
+        const question = data as QuestionImportData;
+        if (question.sourceType === QuestionSourceType.CURATED) {
+          if (!question.importKey) return null;
+          return client.question.findUnique({ where: { importKey: question.importKey } }) as Promise<Record<string, unknown> | null>;
+        }
+        const pyq = question.pyqMetadata;
+        if (!pyq) throw this.rowError('IMPORT_PYQ_IDENTITY_REQUIRED', 'PYQ identity metadata is required.');
+        const metadata = await client.questionPyqMetadata.findUnique({
+          where: {
+            sourceExam_year_sessionKey_paperKey_questionNumber: {
+              sourceExam: pyq.sourceExam,
+              year: pyq.year,
+              sessionKey: pyq.sessionKey,
+              paperKey: pyq.paperKey,
+              questionNumber: pyq.questionNumber,
+            },
+          },
+          include: { question: true },
+        });
+        return (metadata?.question ?? null) as Record<string, unknown> | null;
+      }
     }
     throw this.rowError('IMPORT_ROW_INVALID', 'Unsupported import target.');
   }
@@ -386,6 +563,9 @@ export class ContentImportsService {
     if (existing) {
       if (strategy === ContentImportDuplicateStrategy.ERROR) throw this.rowError('IMPORT_DUPLICATE', 'A matching record already exists.');
       if (strategy === ContentImportDuplicateStrategy.SKIP) return { entity: existing, action: 'SKIP' };
+      if (this.isQuestionTarget(target) && existing.sourceType !== data.sourceType) {
+        throw this.rowError('IMPORT_ROW_INVALID', 'Cross-source Question UPDATE is ambiguous and is not supported.');
+      }
       const updated = await this.updateTarget(client, target, String(existing.id), data);
       return { entity: { ...updated, __before: existing }, action: 'UPDATE' };
     }
@@ -394,14 +574,50 @@ export class ContentImportsService {
   }
 
   private createTarget(client: Prisma.TransactionClient, target: ContentImportTarget, data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (this.isQuestionTarget(target)) {
+      return this.createQuestion(client, data as QuestionImportData);
+    }
     return this.targetModel(client, target).create({ data }) as Promise<Record<string, unknown>>;
   }
 
   private updateTarget(client: Prisma.TransactionClient, target: ContentImportTarget, id: string, data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (this.isQuestionTarget(target)) {
+      return this.updateQuestion(client, id, data as QuestionImportData);
+    }
     return this.targetModel(client, target).update({ where: { id }, data }) as Promise<Record<string, unknown>>;
   }
 
-  private targetModel(client: Prisma.TransactionClient, target: ContentImportTarget): { create: (args: unknown) => unknown; update: (args: unknown) => unknown } {
+  private async createQuestion(client: Prisma.TransactionClient, data: QuestionImportData): Promise<Record<string, unknown>> {
+    const { options, pyqMetadata, ...question } = data;
+    return client.question.create({
+      data: {
+        ...question,
+        options: { create: options },
+        pyqMetadata: pyqMetadata ? { create: pyqMetadata } : undefined,
+      },
+    }) as Promise<Record<string, unknown>>;
+  }
+
+  private async updateQuestion(client: Prisma.TransactionClient, id: string, data: QuestionImportData): Promise<Record<string, unknown>> {
+    const existing = await client.question.findUnique({
+      where: { id },
+      select: { pyqMetadata: { select: { id: true } } },
+    });
+    if (!existing) throw this.rowError('IMPORT_ROW_INVALID', 'The matching Question no longer exists.');
+    const { options, pyqMetadata, ...question } = data;
+    return client.question.update({
+      where: { id },
+      data: {
+        ...question,
+        options: { deleteMany: {}, create: options },
+        pyqMetadata: pyqMetadata
+          ? { upsert: { create: pyqMetadata, update: pyqMetadata } }
+          : existing.pyqMetadata ? { delete: true } : undefined,
+      },
+    }) as Promise<Record<string, unknown>>;
+  }
+
+  private targetModel(client: Prisma.TransactionClient, target: NonQuestionImportTarget): { create: (args: unknown) => unknown; update: (args: unknown) => unknown } {
     const models = {
       [ContentImportTarget.ACADEMIC_EXAM]: client.exam,
       [ContentImportTarget.ACADEMIC_SUBJECT]: client.subject,
@@ -440,6 +656,69 @@ export class ContentImportsService {
   private revisionType(value: string): RevisionType {
     if (!Object.values(RevisionType).includes(value as RevisionType)) throw this.rowError('IMPORT_ROW_INVALID', 'type is not a supported revision type.');
     return value as RevisionType;
+  }
+
+  private questionSourceType(value: string): QuestionSourceType {
+    const normalized = value.trim().toUpperCase();
+    if (normalized === QuestionSourceType.CURATED || normalized === QuestionSourceType.PYQ) {
+      return normalized;
+    }
+    throw this.rowError('IMPORT_INVALID_SOURCE_TYPE', 'source_type must be CURATED or PYQ.');
+  }
+
+  private questionDifficulty(value: string): QuestionDifficulty {
+    const normalized = value.trim().toUpperCase();
+    if (Object.values(QuestionDifficulty).includes(normalized as QuestionDifficulty)) {
+      return normalized as QuestionDifficulty;
+    }
+    throw this.rowError('IMPORT_INVALID_DIFFICULTY', 'difficulty must be EASY, MEDIUM, or HARD.');
+  }
+
+  private correctOptionPosition(value: string): number {
+    const normalized = value.trim().toUpperCase();
+    const positions: Record<string, number> = {
+      A: 1, B: 2, C: 3, D: 4,
+      '1': 1, '2': 2, '3': 3, '4': 4,
+    };
+    const position = positions[normalized];
+    if (!position) throw this.rowError('IMPORT_INVALID_CORRECT_OPTION', 'correct_option must be A, B, C, D, 1, 2, 3, or 4.');
+    return position;
+  }
+
+  private requiredPyqField(value: string | undefined, field: string): string {
+    const normalized = this.optional(value);
+    if (!normalized) throw this.rowError('IMPORT_PYQ_IDENTITY_REQUIRED', `${field} is required for PYQ questions.`);
+    return normalized;
+  }
+
+  private pyqYear(value: string | undefined): number {
+    const year = this.integer(value, 'pyq_year');
+    if (year === undefined || year < 1900 || year > 2100) {
+      throw this.rowError('IMPORT_PYQ_IDENTITY_REQUIRED', 'pyq_year must be an integer between 1900 and 2100.');
+    }
+    return year;
+  }
+
+  private pyqQuestionNumber(value: string | undefined): number {
+    const number = this.integer(value, 'question_number');
+    if (number === undefined || number < 1) {
+      throw this.rowError('IMPORT_PYQ_IDENTITY_REQUIRED', 'question_number must be a positive integer.');
+    }
+    return number;
+  }
+
+  private tags(value: string | undefined): string[] {
+    const normalized = this.optional(value);
+    if (!normalized) return [];
+    return [...new Set(normalized.split(',').map((tag) => tag.trim()).filter(Boolean))];
+  }
+
+  private isQuestionTarget(target: ContentImportTarget): target is 'QUESTION' {
+    return target === 'QUESTION';
+  }
+
+  private normalizeKey(value: string): string {
+    return value.trim().replace(/\s+/g, ' ').toUpperCase();
   }
 
   private videoProvider(value: string): VideoProvider {

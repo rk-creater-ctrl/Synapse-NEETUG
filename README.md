@@ -58,3 +58,71 @@ Authorized content managers can use `/api/v1/admin/content-imports` to preview a
 Hierarchy references use scoped readable slug paths, not database IDs: `exam_slug`, then `subject_slug`, `class_slug`, `chapter_slug`, `topic_slug`, and optional `subtopic_slug`. Academic resources use their scoped slug path as the deterministic natural key; Video uses its globally unique `slug`. Those targets support `ERROR`, `SKIP`, and `UPDATE` duplicate strategies. Revision Item and Flashcard imports are intentionally `ERROR`-only because no deterministic update key is currently exposed.
 
 Apply revalidates previewed rows, reserves the job against double application, and performs content mutations, row status updates, and audit events in one transaction. A failed apply does not leave partial content mutations. Import source bytes are processed only in memory and are never stored.
+
+## Phase 6 — QBank and PYQ Foundation
+
+Phase 6 adds a structured NEET question bank and previous-year-question (PYQ) practice foundation. It is deliberately separate from the future formal assessment engine.
+
+### QBank and PYQ capabilities
+
+- Supported question type: `SINGLE_CORRECT_MCQ`.
+- Each question has exactly four options and exactly one correct option; these rules are enforced by the backend.
+- Difficulty levels: `EASY`, `MEDIUM`, and `HARD`.
+- Sources: curated content (`CURATED`) and NEET/AIPMT-style previous-year content (`PYQ`).
+- Questions are mapped to the existing hierarchy: Exam → Subject → Academic Class → Chapter → Topic → optional Subtopic.
+- Questions support tags, an optional `MediaAsset`, and an optional solution-video association.
+- Publish, active/inactive, free/premium, and display-order controls are available.
+
+### Admin question management
+
+The Admin CMS provides question list, filters, pagination, create, and edit flows for curated questions and PYQs. Editors can manage options, the correct answer, explanations, hierarchy mapping, difficulty, tags, publication state, free/premium state, media references, solution videos, and structured PYQ metadata.
+
+Question/PYQ CSV and XLSX imports use the shared content-import workflow:
+
+- Curated deterministic identity: `import_key`.
+- PYQ deterministic identity: `source_exam + year + session + paper + question_number`.
+- Preview parses and validates rows without changing question content.
+- Apply is an explicit transactional mutation step.
+- Duplicate strategies are `ERROR`, `SKIP`, and `UPDATE`; `SKIP`/`UPDATE` require a deterministic identity.
+
+### Student QBank practice
+
+Students can browse paginated questions and filter by hierarchy, PYQ-only status, PYQ year, difficulty, tags, and eligibility. Student question details use safe projections. Practice sessions support server-selected question sets of 10, 20, 50, or 100 questions, answer submission, server-derived correctness, feedback after an answer, completion summaries, and practice history.
+
+Phase 6 practice sessions are QBank practice only. They are a foundation for a later formal Test/Assessment phase and do not implement a Phase 7 test, attempt, or result engine.
+
+### QBank security and entitlement rules
+
+- Correct answers and explanations are not included in student list/detail payloads before an answer is submitted.
+- Student reads and practice sessions include only eligible active, published content whose academic hierarchy is visible.
+- Users without premium entitlement receive free content only; locked content is handled without exposing the question stem or answer key.
+- The server selects practice questions, validates submitted options, derives correctness, and enforces session ownership.
+
+### Relevant API endpoints
+
+All routes use the `/api/v1` prefix and require the existing authentication/authorization rules.
+
+| Area | Methods and routes |
+| --- | --- |
+| Admin questions | `GET /admin/questions`, `GET /admin/questions/:id`, `POST /admin/questions`, `PATCH /admin/questions/:id` |
+| Student QBank | `GET /learning/questions`, `GET /learning/questions/:id` |
+| QBank practice | `POST /learning/question-practice-sessions`, `GET /learning/question-practice-sessions`, `GET /learning/question-practice-sessions/:id`, `POST /learning/question-practice-sessions/:id/items/:itemId/answer`, `POST /learning/question-practice-sessions/:id/complete` |
+
+### Database migrations
+
+Phase 6 is introduced by these migrations:
+
+- `backend/prisma/migrations/20260908000000_add_qbank_foundation/`
+- `backend/prisma/migrations/20260908100000_add_question_content_import_target/`
+
+### Phase 6 verification status
+
+- Backend build passed.
+- Backend tests: 133/133 passed.
+- Admin production build passed.
+- Flutter analyze: no issues found.
+- Flutter tests: 5 passed.
+- Android `:app:compileDebugKotlin` passed.
+- Android `assembleDebug` passed.
+
+The current QBank screens are functional UI only. Final visual/UI/UX design, theming, branding, and animation are intentionally deferred to the dedicated design phase.

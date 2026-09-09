@@ -11,6 +11,7 @@ import { LearningModule } from './modules/learning/learning.module';
 import { FlashcardsModule } from './modules/flashcards/flashcards.module';
 import { MediaAssetsModule } from './modules/media-assets/media-assets.module';
 import { ContentImportsModule } from './modules/content-imports/content-imports.module';
+import { QuestionsModule } from './modules/qbank/questions.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { ContentImportsModule } from './modules/content-imports/content-imports.
     FlashcardsModule,
     MediaAssetsModule,
     ContentImportsModule,
+    QuestionsModule,
   ],
   controllers: [HealthController],
   providers: [

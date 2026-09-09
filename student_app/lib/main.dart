@@ -8,6 +8,10 @@ import 'package:go_router/go_router.dart';
 
 import 'core/device/installation_identity_service.dart';
 import 'features/learning/presentation/chapter_learning_screen.dart';
+import 'features/learning/presentation/qbank_browse_screen.dart';
+import 'features/learning/presentation/qbank_history_screen.dart';
+import 'features/learning/presentation/qbank_question_detail_screen.dart';
+import 'features/learning/presentation/qbank_practice_screen.dart';
 
 const _storage = FlutterSecureStorage();
 final _installationIdentityService = InstallationIdentityService();
@@ -209,6 +213,26 @@ class SynapseApp extends StatelessWidget {
         GoRoute(
           path: '/devices',
           builder: (_, __) => const DeviceManagementScreen(),
+        ),
+        GoRoute(
+          path: '/qbank',
+          builder: (_, __) => const QbankBrowseScreen(),
+        ),
+        GoRoute(
+          path: '/qbank/history',
+          builder: (_, __) => const QbankHistoryScreen(),
+        ),
+        GoRoute(
+          path: '/qbank/question/:id',
+          builder: (_, state) => QbankQuestionDetailScreen(
+            questionId: state.pathParameters['id']!,
+          ),
+        ),
+        GoRoute(
+          path: '/qbank/session/:id',
+          builder: (_, state) => QbankPracticeScreen(
+            sessionId: state.pathParameters['id']!,
+          ),
         ),
       ],
     );
@@ -412,6 +436,10 @@ class Home extends StatelessWidget {
           SynapseButton(
             label: 'Browse subjects',
             onPressed: () => context.go('/subjects'),
+          ),
+          SynapseButton(
+            label: 'QBank & PYQs',
+            onPressed: () => context.go('/qbank'),
           ),
           TextButton(
             onPressed: () => context.push('/profile'),
