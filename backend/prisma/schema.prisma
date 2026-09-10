@@ -94,6 +94,26 @@ enum QuestionPracticeSessionStatus {
   ABANDONED
 }
 
+enum DailyStudyModuleStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum DailyStudyTaskType {
+  QUESTION
+  FLASHCARD
+  REVISION
+  VIDEO
+}
+
+enum DailyStudyTaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
 model User {
   testAttempts          TestAttempt[]
   id                String              @id @default(cuid())
@@ -112,6 +132,7 @@ model User {
   questionPracticeSessions QuestionPracticeSession[]
   contentImportJobs ContentImportJob[]
   contentAuditEvents ContentAuditEvent[]
+  dailyStudyModules DailyStudyModule[]
 }
 
 model Role {
@@ -218,6 +239,7 @@ model Subject {
   revisionItems RevisionItem[]
   flashcards    Flashcard[]
   questions     Question[]
+  dailyStudyTasks DailyStudyTask[]
 
   @@unique([examId, slug])
   @@index([examId, isActive])
@@ -262,6 +284,7 @@ model Chapter {
   revisionItems RevisionItem[]
   flashcards    Flashcard[]
   questions     Question[]
+  dailyStudyTasks DailyStudyTask[]
 
   @@unique([classId, slug])
   @@index([classId, isActive])
@@ -284,6 +307,7 @@ model Topic {
   revisionItems RevisionItem[]
   flashcards    Flashcard[]
   questions     Question[]
+  dailyStudyTasks DailyStudyTask[]
 
   @@unique([chapterId, slug])
   @@index([chapterId, isActive])
@@ -305,6 +329,7 @@ model Subtopic {
   revisionItems RevisionItem[]
   flashcards    Flashcard[]
   questions     Question[]
+  dailyStudyTasks DailyStudyTask[]
 
   @@unique([topicId, slug])
   @@index([topicId, isActive])
@@ -364,6 +389,7 @@ model Video {
   mediaAsset      MediaAsset?     @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
   progress        VideoProgress[]
   solutionForQuestions Question[] @relation("QuestionSolutionVideo")
+  dailyStudyTasks DailyStudyTask[]
 
   @@index([chapterId, isPublished, isActive, displayOrder])
   @@index([topicId, isPublished, isActive, displayOrder])
@@ -412,6 +438,7 @@ model RevisionItem {
   chapter         Chapter       @relation(fields: [chapterId], references: [id])
   topic           Topic         @relation(fields: [topicId], references: [id])
   subtopic        Subtopic?     @relation(fields: [subtopicId], references: [id])
+  dailyStudyTasks DailyStudyTask[]
 
   @@index([chapterId, topicId, type, isPublished, isActive])
 }
@@ -444,6 +471,7 @@ model Flashcard {
   subtopic        Subtopic?           @relation(fields: [subtopicId], references: [id])
   mediaAsset      MediaAsset?         @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
   progress        FlashcardProgress[]
+  dailyStudyTasks DailyStudyTask[]
 
   @@index([topicId, isPublished, isActive, sortOrder])
   @@index([chapterId, isPublished, isActive, sortOrder])
@@ -501,6 +529,7 @@ model Question {
   options         QuestionOption[]
   pyqMetadata     QuestionPyqMetadata?
   practiceItems   QuestionPracticeItem[]
+  dailyStudyTasks DailyStudyTask[]
 
   @@index([topicId, isActive, isPublished, isFree, displayOrder])
   @@index([chapterId, isActive, isPublished, displayOrder])
@@ -574,6 +603,60 @@ model QuestionPracticeItem {
   @@unique([sessionId, sequence])
   @@unique([sessionId, questionId])
   @@index([questionId])
+}
+
+model DailyStudyModule {
+  id          String                 @id @default(cuid())
+  studentId   String
+  studyDate   DateTime               @db.Date
+  status      DailyStudyModuleStatus @default(NOT_STARTED)
+  generatedAt DateTime               @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  student     User                   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  tasks       DailyStudyTask[]
+
+  @@unique([studentId, studyDate])
+  @@index([studentId, status, studyDate])
+}
+
+model DailyStudyTask {
+  id              String               @id @default(cuid())
+  moduleId        String
+  subjectId       String
+  type            DailyStudyTaskType
+  status          DailyStudyTaskStatus @default(PENDING)
+  displayOrder    Int
+  chapterId       String?
+  topicId         String?
+  subtopicId      String?
+  questionId      String?
+  flashcardId     String?
+  revisionItemId  String?
+  videoId         String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  module          DailyStudyModule     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  subject         Subject              @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  chapter         Chapter?             @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  topic           Topic?               @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  subtopic        Subtopic?            @relation(fields: [subtopicId], references: [id], onDelete: SetNull)
+  question        Question?            @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  flashcard       Flashcard?           @relation(fields: [flashcardId], references: [id], onDelete: SetNull)
+  revisionItem    RevisionItem?        @relation(fields: [revisionItemId], references: [id], onDelete: SetNull)
+  video           Video?               @relation(fields: [videoId], references: [id], onDelete: SetNull)
+
+  @@unique([moduleId, subjectId, displayOrder])
+  @@index([moduleId, status])
+  @@index([subjectId, status])
+  @@index([questionId])
+  @@index([flashcardId])
+  @@index([revisionItemId])
+  @@index([videoId])
 }
 
 model ContentImportJob {

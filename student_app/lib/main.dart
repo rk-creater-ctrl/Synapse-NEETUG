@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 
 import 'core/device/installation_identity_service.dart';
 import 'features/learning/presentation/chapter_learning_screen.dart';
+import 'features/learning/presentation/daily_study_screen.dart';
 import 'features/learning/presentation/qbank_browse_screen.dart';
 import 'features/learning/presentation/qbank_history_screen.dart';
 import 'features/learning/presentation/qbank_question_detail_screen.dart';
@@ -218,6 +219,10 @@ class SynapseApp extends StatelessWidget {
         GoRoute(
           path: '/qbank',
           builder: (_, __) => const QbankBrowseScreen(),
+        ),
+        GoRoute(
+          path: '/daily-study',
+          builder: (_, __) => const DailyStudyScreen(),
         ),
         GoRoute(
           path: '/qbank/history',
@@ -469,6 +474,10 @@ class Home extends StatelessWidget {
           SynapseButton(
             label: 'QBank & PYQs',
             onPressed: () => context.go('/qbank'),
+          ),
+          SynapseButton(
+            label: 'Daily Study',
+            onPressed: () => context.go('/daily-study'),
           ),
           SynapseButton(
             label: 'Tests',

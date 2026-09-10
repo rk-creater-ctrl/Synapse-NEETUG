@@ -136,3 +136,29 @@ Students can discover available free tests, read safe pre-attempt instructions, 
 Finalized students can read a result summary and an ordered review containing selected answers, correct options, awarded marks, and explanations. Correct answers, explanations, scoring, and answer keys remain unavailable while an attempt is in progress. Formal-test media and solution-video review are intentionally omitted until a safe dedicated contract exists.
 
 The Flutter tests flow provides discovery, instructions, an active test screen, server-deadline display, answer saving, submit confirmation, result, and review screens. These are functional screens only; final product visual design is intentionally deferred.
+
+## Phase 8 — Daily Personalized PCB Module
+
+Phase 8 adds one canonical Daily Personalized PCB Module per student and study date. Modules are grouped in Physics, Chemistry, and Biology order and use persisted learner history to generate safe, deterministic learning tasks: `QUESTION`, `FLASHCARD`, `REVISION`, and `VIDEO`.
+
+- Subject strategies prioritize weak hierarchy areas, prefer eligible PYQs where applicable, and remain sparse-content tolerant without fabricating or duplicating content.
+- Student eligibility remains safe and free-content-only where entitlement is unavailable. Unavailable, deleted, unpublished, inactive, or locked content remains represented safely and can be skipped.
+- Daily task lifecycle is server-authoritative: `PENDING`, `IN_PROGRESS`, `COMPLETED`, and `SKIPPED`. Module lifecycle is `NOT_STARTED`, `IN_PROGRESS`, and `COMPLETED`.
+- API responses include backend-derived overall and per-subject progress summaries; task mutations return the authoritative module and do not regenerate candidate tasks.
+- The Flutter app provides the functional `/daily-study` Material screen with PCB grouping, progress, lifecycle controls, safe question content without correctness/explanation leakage, and safe video metadata without playback, provider, or storage credentials.
+
+### Database migration
+
+- `backend/prisma/migrations/20260910000000_add_daily_study_module_foundation/`
+
+### Phase 8 verification status
+
+- Backend tests: 27/27 suites, 186/186 tests passed.
+- Backend build passed.
+- Prisma migration status: 11 migrations; database schema up to date.
+- Flutter analyze: no issues found.
+- Flutter tests: 21/21 passed.
+- Android `compileDebugKotlin` passed.
+- Android `assembleDebug` passed.
+
+The current Flutter Daily Study experience is functional Material UI only. Final visual/UI/UX design is intentionally deferred to the dedicated design phase.

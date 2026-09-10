@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'daily_study_models.dart';
 import 'learning_models.dart';
 import 'test_models.dart';
 
@@ -164,5 +165,28 @@ class LearningApiService {
   Future<TestReview> testReview(String attemptId) async {
     final response = await dio.get('/learning/test-attempts/$attemptId/review');
     return TestReview.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<DailyStudyModule> dailyStudy(String date) async {
+    final response = await dio.get(
+      '/learning/daily-study',
+      queryParameters: {'date': date},
+    );
+    return DailyStudyModule.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<DailyStudyModule> updateDailyStudyTaskStatus(
+    String taskId,
+    DailyStudyTaskStatus status,
+  ) async {
+    final response = await dio.patch(
+      '/learning/daily-study/tasks/$taskId/status',
+      data: {'status': status.wireValue},
+    );
+    return DailyStudyModule.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
   }
 }

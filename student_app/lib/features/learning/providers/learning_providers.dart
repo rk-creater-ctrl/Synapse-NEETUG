@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../main.dart';
+import '../data/daily_study_models.dart';
 import '../data/learning_api_service.dart';
 import '../data/learning_models.dart';
 import '../data/test_models.dart';
@@ -47,3 +48,36 @@ final testResultProvider = FutureProvider.family<TestResult, String>(
 final testReviewProvider = FutureProvider.family<TestReview, String>(
   (ref, id) => ref.read(learningApiProvider).testReview(id),
 );
+
+final dailyStudyProvider = StateNotifierProvider.autoDispose.family<
+    DailyStudyController, AsyncValue<DailyStudyModule>, String>(
+  (ref, date) => DailyStudyController(ref.read(learningApiProvider), date)..load(),
+);
+
+class DailyStudyController extends StateNotifier<AsyncValue<DailyStudyModule>> {
+  final LearningApiService _api;
+  final String _date;
+
+  DailyStudyController(this._api, this._date)
+      : super(const AsyncValue.loading());
+
+  Future<void> load() async {
+    state = const AsyncValue.loading();
+    try {
+      state = AsyncValue.data(await _api.dailyStudy(_date));
+    } catch (error, stackTrace) {
+      state = AsyncValue.error(error, stackTrace);
+    }
+  }
+
+  Future<void> updateTaskStatus(
+    String taskId,
+    DailyStudyTaskStatus status,
+  ) async {
+    if (status == DailyStudyTaskStatus.pending) {
+      throw ArgumentError.value(status, 'status', 'PENDING is not a task mutation target.');
+    }
+    final module = await _api.updateDailyStudyTaskStatus(taskId, status);
+    state = AsyncValue.data(module);
+  }
+}
