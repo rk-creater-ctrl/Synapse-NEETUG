@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'learning_models.dart';
+import 'test_models.dart';
 
 class LearningApiService {
   final Dio dio;
@@ -104,5 +105,64 @@ class LearningApiService {
       queryParameters: {'page': page, 'limit': limit},
     );
     return PracticeHistoryPage.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<StudentTestPage> tests({int page = 1, int limit = 20}) async {
+    final response = await dio.get(
+      '/learning/tests',
+      queryParameters: {'page': page, 'limit': limit},
+    );
+    return StudentTestPage.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<StudentTestDetail> testDetail(String id) async {
+    final response = await dio.get('/learning/tests/$id');
+    return StudentTestDetail.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<String> startTestAttempt(String testId) async {
+    final response = await dio.post('/learning/tests/$testId/attempts');
+    return Map<String, dynamic>.from(response.data as Map)['id'].toString();
+  }
+
+  Future<FormalTestAttempt> testAttempt(String attemptId) async {
+    final response = await dio.get('/learning/test-attempts/$attemptId');
+    return FormalTestAttempt.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<void> saveTestAnswer(
+    String attemptId,
+    String testQuestionId, {
+    String? selectedOptionId,
+    required bool markForReview,
+  }) async {
+    await dio.put(
+      '/learning/test-attempts/$attemptId/questions/$testQuestionId/answer',
+      data: {
+        'selectedOptionId': selectedOptionId,
+        'markForReview': markForReview,
+      },
+    );
+  }
+
+  Future<TestResult> submitTestAttempt(String attemptId) async {
+    final response = await dio.post('/learning/test-attempts/$attemptId/submit');
+    return TestResult.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<TestResult> testResult(String attemptId) async {
+    final response = await dio.get('/learning/test-attempts/$attemptId/result');
+    return TestResult.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<TestReview> testReview(String attemptId) async {
+    final response = await dio.get('/learning/test-attempts/$attemptId/review');
+    return TestReview.fromJson(Map<String, dynamic>.from(response.data as Map));
   }
 }

@@ -12,6 +12,7 @@ import 'features/learning/presentation/qbank_browse_screen.dart';
 import 'features/learning/presentation/qbank_history_screen.dart';
 import 'features/learning/presentation/qbank_question_detail_screen.dart';
 import 'features/learning/presentation/qbank_practice_screen.dart';
+import 'features/learning/presentation/test_screens.dart';
 
 const _storage = FlutterSecureStorage();
 final _installationIdentityService = InstallationIdentityService();
@@ -234,6 +235,34 @@ class SynapseApp extends StatelessWidget {
             sessionId: state.pathParameters['id']!,
           ),
         ),
+        GoRoute(
+          path: '/tests',
+          builder: (_, __) => const TestsScreen(),
+        ),
+        GoRoute(
+          path: '/tests/:id',
+          builder: (_, state) => TestDetailScreen(
+            testId: state.pathParameters['id']!,
+          ),
+        ),
+        GoRoute(
+          path: '/test-attempts/:id',
+          builder: (_, state) => TestAttemptScreen(
+            attemptId: state.pathParameters['id']!,
+          ),
+        ),
+        GoRoute(
+          path: '/test-attempts/:id/result',
+          builder: (_, state) => TestResultScreen(
+            attemptId: state.pathParameters['id']!,
+          ),
+        ),
+        GoRoute(
+          path: '/test-attempts/:id/review',
+          builder: (_, state) => TestReviewScreen(
+            attemptId: state.pathParameters['id']!,
+          ),
+        ),
       ],
     );
 
@@ -440,6 +469,10 @@ class Home extends StatelessWidget {
           SynapseButton(
             label: 'QBank & PYQs',
             onPressed: () => context.go('/qbank'),
+          ),
+          SynapseButton(
+            label: 'Tests',
+            onPressed: () => context.go('/tests'),
           ),
           TextButton(
             onPressed: () => context.push('/profile'),

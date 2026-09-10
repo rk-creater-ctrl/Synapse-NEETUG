@@ -91,6 +91,41 @@ export type QuestionItem = HierarchyValue &
     pyqMetadata?: QuestionPyqMetadata | null;
   };
 
+export type TestQuestionPlacement = {
+  id?: string;
+  questionId: string;
+  displayOrder: number;
+  marks: number;
+  negativeMarks: number;
+  question?: QuestionItem;
+};
+
+export type TestSectionItem = {
+  id?: string;
+  title: string;
+  instructions?: string | null;
+  displayOrder: number;
+  questions: TestQuestionPlacement[];
+};
+
+export type TestItem = HierarchyValue &
+  ContentStatus & {
+    id: string;
+    title: string;
+    description?: string | null;
+    instructions?: string | null;
+    durationMinutes: number;
+    totalMarks: number;
+    isFree: boolean;
+    availableFrom?: string | null;
+    availableUntil?: string | null;
+    sections?: TestSectionItem[];
+    _count?: {
+      sections: number;
+      attempts: number;
+    };
+  };
+
 export type RevisionType =
   | 'FORMULA'
   | 'REACTION'

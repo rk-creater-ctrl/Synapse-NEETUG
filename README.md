@@ -126,3 +126,13 @@ Phase 6 is introduced by these migrations:
 - Android `assembleDebug` passed.
 
 The current QBank screens are functional UI only. Final visual/UI/UX design, theming, branding, and animation are intentionally deferred to the dedicated design phase.
+
+## Phase 7 — Formal Tests, Attempts, and Results
+
+Authorized content managers can create and edit formal tests in the Admin CMS under the learning/tests route. A test includes hierarchy scope, scheduling, active/published and free/premium state, ordered sections, existing QBank questions, and per-question positive/negative marks. The backend derives total marks and prevents changing a test once it has formal attempts.
+
+Students can discover available free tests, read safe pre-attempt instructions, start or resume a server-owned attempt, save answers and marked-for-review state, and submit. The server owns the deadline, lazily auto-submits expired attempts, calculates all scoring, and persists finalized summaries. A finalized attempt blocks another attempt for the same student/test until an explicit retake policy is introduced.
+
+Finalized students can read a result summary and an ordered review containing selected answers, correct options, awarded marks, and explanations. Correct answers, explanations, scoring, and answer keys remain unavailable while an attempt is in progress. Formal-test media and solution-video review are intentionally omitted until a safe dedicated contract exists.
+
+The Flutter tests flow provides discovery, instructions, an active test screen, server-deadline display, answer saving, submit confirmation, result, and review screens. These are functional screens only; final product visual design is intentionally deferred.

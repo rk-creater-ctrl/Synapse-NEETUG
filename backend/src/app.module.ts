@@ -15,6 +15,7 @@ import { QuestionsModule } from './modules/qbank/questions.module';
 
 @Module({
   imports: [
+    AssessmentsModule,
     ConfigModule.forRoot({
       isGlobal: true,
       validationSchema: Joi.object({
@@ -44,3 +45,4 @@ import { QuestionsModule } from './modules/qbank/questions.module';
   ],
 })
 export class AppModule {}
+import { AssessmentsModule } from './modules/assessments/assessments.module';
