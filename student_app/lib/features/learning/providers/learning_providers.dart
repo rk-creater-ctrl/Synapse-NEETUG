@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../main.dart';
 import '../data/daily_study_models.dart';
+import '../data/study_session_models.dart';
+import '../data/study_analytics_models.dart';
+import '../data/study_leaderboard_models.dart';
 import '../data/learning_api_service.dart';
 import '../data/learning_models.dart';
 import '../data/test_models.dart';
@@ -79,5 +82,81 @@ class DailyStudyController extends StateNotifier<AsyncValue<DailyStudyModule>> {
     }
     final module = await _api.updateDailyStudyTaskStatus(taskId, status);
     state = AsyncValue.data(module);
+  }
+}
+
+final studySessionProvider = StateNotifierProvider.autoDispose<
+    StudySessionController, AsyncValue<StudySession?>>(
+  (ref) => StudySessionController(ref.read(learningApiProvider))..loadCurrent(),
+);
+
+final studyAnalyticsProvider = FutureProvider.autoDispose<StudyAnalytics>(
+  (ref) => ref.read(learningApiProvider).studyAnalytics(),
+);
+
+final dailyStudyLeaderboardProvider =
+    FutureProvider.autoDispose<DailyStudyLeaderboard>(
+  (ref) => ref.read(learningApiProvider).dailyStudyLeaderboard(),
+);
+
+final weeklyStudyLeaderboardProvider =
+    FutureProvider.autoDispose<WeeklyStudyLeaderboard>(
+  (ref) => ref.read(learningApiProvider).weeklyStudyLeaderboard(),
+);
+
+final monthlyStudyLeaderboardProvider =
+    FutureProvider.autoDispose<MonthlyStudyLeaderboard>(
+  (ref) => ref.read(learningApiProvider).monthlyStudyLeaderboard(),
+);
+
+class StudySessionController extends StateNotifier<AsyncValue<StudySession?>> {
+  final LearningApiService _api;
+  bool _mutationInFlight = false;
+
+  StudySessionController(this._api) : super(const AsyncValue.loading());
+
+  Future<void> loadCurrent() async {
+    state = const AsyncValue.loading();
+    try {
+      state = AsyncValue.data(await _api.currentStudySession());
+    } catch (error, stackTrace) {
+      state = AsyncValue.error(error, stackTrace);
+    }
+  }
+
+  Future<void> start(StudySessionStartContext context) =>
+      _mutate(() => _api.startStudySession(context));
+
+  Future<void> pause(String sessionId) =>
+      _mutate(() => _api.pauseStudySession(sessionId));
+
+  Future<void> resume(String sessionId) =>
+      _mutate(() => _api.resumeStudySession(sessionId));
+
+  Future<void> complete(String sessionId) =>
+      _mutate(() => _api.completeStudySession(sessionId));
+
+  Future<void> abandon(String sessionId) =>
+      _mutate(() => _api.abandonStudySession(sessionId));
+
+  void clearFinalized() {
+    final current = state;
+    if (current is AsyncData<StudySession?> && current.value != null &&
+        (current.value!.status == StudySessionStatus.completed ||
+            current.value!.status == StudySessionStatus.abandoned)) {
+      state = const AsyncValue.data(null);
+    }
+  }
+
+  Future<void> _mutate(Future<StudySession> Function() request) async {
+    if (_mutationInFlight) {
+      return;
+    }
+    _mutationInFlight = true;
+    try {
+      state = AsyncValue.data(await request());
+    } finally {
+      _mutationInFlight = false;
+    }
   }
 }

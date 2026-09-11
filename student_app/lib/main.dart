@@ -14,6 +14,11 @@ import 'features/learning/presentation/qbank_history_screen.dart';
 import 'features/learning/presentation/qbank_question_detail_screen.dart';
 import 'features/learning/presentation/qbank_practice_screen.dart';
 import 'features/learning/presentation/test_screens.dart';
+import 'features/learning/presentation/study_timer_screen.dart';
+import 'features/learning/presentation/study_analytics_screen.dart';
+import 'features/learning/presentation/daily_leaderboard_screen.dart';
+import 'features/learning/presentation/weekly_leaderboard_screen.dart';
+import 'features/learning/presentation/monthly_leaderboard_screen.dart';
 
 const _storage = FlutterSecureStorage();
 final _installationIdentityService = InstallationIdentityService();
@@ -223,6 +228,26 @@ class SynapseApp extends StatelessWidget {
         GoRoute(
           path: '/daily-study',
           builder: (_, __) => const DailyStudyScreen(),
+        ),
+        GoRoute(
+          path: '/study-timer',
+          builder: (_, __) => const StudyTimerScreen(),
+        ),
+        GoRoute(
+          path: '/study-analytics',
+          builder: (_, __) => const StudyAnalyticsScreen(),
+        ),
+        GoRoute(
+          path: '/leaderboard/daily',
+          builder: (_, __) => const DailyLeaderboardScreen(),
+        ),
+        GoRoute(
+          path: '/leaderboard/weekly',
+          builder: (_, __) => const WeeklyLeaderboardScreen(),
+        ),
+        GoRoute(
+          path: '/leaderboard/monthly',
+          builder: (_, __) => const MonthlyLeaderboardScreen(),
         ),
         GoRoute(
           path: '/qbank/history',
@@ -478,6 +503,26 @@ class Home extends StatelessWidget {
           SynapseButton(
             label: 'Daily Study',
             onPressed: () => context.go('/daily-study'),
+          ),
+          SynapseButton(
+            label: 'Study Timer',
+            onPressed: () => context.go('/study-timer'),
+          ),
+          SynapseButton(
+            label: 'Study Analytics',
+            onPressed: () => context.go('/study-analytics'),
+          ),
+          SynapseButton(
+            label: 'Daily Leaderboard',
+            onPressed: () => context.go('/leaderboard/daily'),
+          ),
+          SynapseButton(
+            label: 'Weekly Leaderboard',
+            onPressed: () => context.go('/leaderboard/weekly'),
+          ),
+          SynapseButton(
+            label: 'Monthly Leaderboard',
+            onPressed: () => context.go('/leaderboard/monthly'),
           ),
           SynapseButton(
             label: 'Tests',

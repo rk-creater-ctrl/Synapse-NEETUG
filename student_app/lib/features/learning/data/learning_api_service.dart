@@ -1,5 +1,8 @@
 import 'package:dio/dio.dart';
 import 'daily_study_models.dart';
+import 'study_session_models.dart';
+import 'study_analytics_models.dart';
+import 'study_leaderboard_models.dart';
 import 'learning_models.dart';
 import 'test_models.dart';
 
@@ -186,6 +189,72 @@ class LearningApiService {
       data: {'status': status.wireValue},
     );
     return DailyStudyModule.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<StudySession> startStudySession(StudySessionStartContext context) async {
+    final response = await dio.post(
+      '/learning/study-sessions',
+      data: context.toJson(),
+    );
+    return StudySession.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<StudySession?> currentStudySession() async {
+    final response = await dio.get('/learning/study-sessions/current');
+    if (response.data == null) {
+      return null;
+    }
+    return StudySession.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<StudySession> studySession(String id) async {
+    final response = await dio.get('/learning/study-sessions/$id');
+    return StudySession.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<StudySession> pauseStudySession(String id) =>
+      _studySessionAction(id, 'pause');
+
+  Future<StudySession> resumeStudySession(String id) =>
+      _studySessionAction(id, 'resume');
+
+  Future<StudySession> completeStudySession(String id) =>
+      _studySessionAction(id, 'complete');
+
+  Future<StudySession> abandonStudySession(String id) =>
+      _studySessionAction(id, 'abandon');
+
+  Future<StudySession> _studySessionAction(String id, String action) async {
+    final response = await dio.post('/learning/study-sessions/$id/$action');
+    return StudySession.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<StudyAnalytics> studyAnalytics() async {
+    final response = await dio.get('/learning/study-analytics');
+    return StudyAnalytics.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<DailyStudyLeaderboard> dailyStudyLeaderboard() async {
+    final response = await dio.get('/learning/study-leaderboard/daily');
+    return DailyStudyLeaderboard.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<WeeklyStudyLeaderboard> weeklyStudyLeaderboard() async {
+    final response = await dio.get('/learning/study-leaderboard/weekly');
+    return WeeklyStudyLeaderboard.fromJson(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+  }
+
+  Future<MonthlyStudyLeaderboard> monthlyStudyLeaderboard() async {
+    final response = await dio.get('/learning/study-leaderboard/monthly');
+    return MonthlyStudyLeaderboard.fromJson(
       Map<String, dynamic>.from(response.data as Map),
     );
   }

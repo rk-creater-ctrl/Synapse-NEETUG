@@ -114,6 +114,23 @@ enum DailyStudyTaskStatus {
   SKIPPED
 }
 
+enum StudySessionStatus {
+  IN_PROGRESS
+  PAUSED
+  COMPLETED
+  ABANDONED
+}
+
+enum StudySessionContextType {
+  GENERAL
+  VIDEO
+  FLASHCARD
+  QUESTION_PRACTICE
+  TEST
+  REVISION
+  DAILY_STUDY
+}
+
 model User {
   testAttempts          TestAttempt[]
   id                String              @id @default(cuid())
@@ -133,6 +150,7 @@ model User {
   contentImportJobs ContentImportJob[]
   contentAuditEvents ContentAuditEvent[]
   dailyStudyModules DailyStudyModule[]
+  studySessions    StudySession[]
 }
 
 model Role {
@@ -240,6 +258,7 @@ model Subject {
   flashcards    Flashcard[]
   questions     Question[]
   dailyStudyTasks DailyStudyTask[]
+  studySessions    StudySession[]
 
   @@unique([examId, slug])
   @@index([examId, isActive])
@@ -285,6 +304,7 @@ model Chapter {
   flashcards    Flashcard[]
   questions     Question[]
   dailyStudyTasks DailyStudyTask[]
+  studySessions    StudySession[]
 
   @@unique([classId, slug])
   @@index([classId, isActive])
@@ -308,6 +328,7 @@ model Topic {
   flashcards    Flashcard[]
   questions     Question[]
   dailyStudyTasks DailyStudyTask[]
+  studySessions    StudySession[]
 
   @@unique([chapterId, slug])
   @@index([chapterId, isActive])
@@ -330,6 +351,7 @@ model Subtopic {
   flashcards    Flashcard[]
   questions     Question[]
   dailyStudyTasks DailyStudyTask[]
+  studySessions    StudySession[]
 
   @@unique([topicId, slug])
   @@index([topicId, isActive])
@@ -657,6 +679,36 @@ model DailyStudyTask {
   @@index([flashcardId])
   @@index([revisionItemId])
   @@index([videoId])
+}
+
+model StudySession {
+  id                   String                  @id @default(cuid())
+  studentId            String
+  status               StudySessionStatus      @default(IN_PROGRESS)
+  contextType          StudySessionContextType @default(GENERAL)
+  subjectId            String?
+  chapterId            String?
+  topicId              String?
+  subtopicId           String?
+  startedAt            DateTime                @default(now())
+  pausedAt             DateTime?
+  completedAt          DateTime?
+  abandonedAt          DateTime?
+  lastResumedAt        DateTime?
+  accumulatedSeconds   Int                     @default(0)
+  finalDurationSeconds Int?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  student              User                    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject              Subject?                @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  chapter              Chapter?                @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  topic                Topic?                  @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  subtopic             Subtopic?               @relation(fields: [subtopicId], references: [id], onDelete: SetNull)
+
+  @@index([studentId, startedAt])
+  @@index([studentId, status])
+  @@index([studentId, completedAt])
+  @@index([subjectId, startedAt])
 }
 
 model ContentImportJob {

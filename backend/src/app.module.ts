@@ -13,6 +13,9 @@ import { MediaAssetsModule } from './modules/media-assets/media-assets.module';
 import { ContentImportsModule } from './modules/content-imports/content-imports.module';
 import { QuestionsModule } from './modules/qbank/questions.module';
 import { DailyStudyModule } from './modules/daily-study/daily-study.module';
+import { StudySessionsModule } from './modules/study-sessions/study-sessions.module';
+import { StudyAnalyticsModule } from './modules/study-analytics/study-analytics.module';
+import { StudyLeaderboardModule } from './modules/study-leaderboard/study-leaderboard.module';
 
 @Module({
   imports: [
@@ -39,6 +42,9 @@ import { DailyStudyModule } from './modules/daily-study/daily-study.module';
     ContentImportsModule,
     QuestionsModule,
     DailyStudyModule,
+    StudySessionsModule,
+    StudyAnalyticsModule,
+    StudyLeaderboardModule,
   ],
   controllers: [HealthController],
   providers: [
