@@ -151,6 +151,7 @@ model User {
   contentAuditEvents ContentAuditEvent[]
   dailyStudyModules DailyStudyModule[]
   studySessions    StudySession[]
+  mentorProfile    MentorProfile?
 }
 
 model Role {
@@ -259,6 +260,7 @@ model Subject {
   questions     Question[]
   dailyStudyTasks DailyStudyTask[]
   studySessions    StudySession[]
+  mentorExpertise  MentorSubjectExpertise[]
 
   @@unique([examId, slug])
   @@index([examId, isActive])
@@ -709,6 +711,34 @@ model StudySession {
   @@index([studentId, status])
   @@index([studentId, completedAt])
   @@index([subjectId, startedAt])
+}
+
+model MentorProfile {
+  id              String                    @id @default(cuid())
+  userId          String                    @unique
+  fullName        String
+  headline        String?
+  bio             String?
+  profileImageUrl String?
+  experienceYears Int                       @default(0)
+  isActive        Boolean                   @default(true)
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  user            User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expertise       MentorSubjectExpertise[]
+
+  @@index([isActive])
+}
+
+model MentorSubjectExpertise {
+  mentorProfileId String
+  subjectId       String
+  createdAt       DateTime      @default(now())
+  mentorProfile   MentorProfile @relation(fields: [mentorProfileId], references: [id], onDelete: Cascade)
+  subject         Subject       @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@id([mentorProfileId, subjectId])
+  @@index([subjectId])
 }
 
 model ContentImportJob {

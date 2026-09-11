@@ -16,6 +16,7 @@ import { DailyStudyModule } from './modules/daily-study/daily-study.module';
 import { StudySessionsModule } from './modules/study-sessions/study-sessions.module';
 import { StudyAnalyticsModule } from './modules/study-analytics/study-analytics.module';
 import { StudyLeaderboardModule } from './modules/study-leaderboard/study-leaderboard.module';
+import { MentorsModule } from './modules/mentors/mentors.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { StudyLeaderboardModule } from './modules/study-leaderboard/study-leader
     StudySessionsModule,
     StudyAnalyticsModule,
     StudyLeaderboardModule,
+    MentorsModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -1,0 +1,128 @@
+import { Transform, Type } from 'class-transformer';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Length,
+  Max,
+  Min,
+} from 'class-validator';
+
+const toBoolean = ({ value }: { value: unknown }) =>
+  value === 'true' ? true : value === 'false' ? false : value;
+
+export class CreateMentorDto {
+  @IsString()
+  @Length(1, 191)
+  userId!: string;
+
+  @IsString()
+  @Length(1, 200)
+  fullName!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  headline?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 5000)
+  bio?: string;
+
+  @IsOptional()
+  @IsUrl({ require_protocol: true })
+  @Length(1, 2048)
+  profileImageUrl?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  experienceYears?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  subjectIds!: string[];
+}
+
+export class UpdateMentorDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  fullName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  headline?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 5000)
+  bio?: string;
+
+  @IsOptional()
+  @IsUrl({ require_protocol: true })
+  @Length(1, 2048)
+  profileImageUrl?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  experienceYears?: number;
+}
+
+export class UpdateMentorStatusDto {
+  @IsBoolean()
+  isActive!: boolean;
+}
+
+export class ReplaceMentorSubjectsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  subjectIds!: string[];
+}
+
+export class MentorListQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 20;
+
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 191)
+  subjectId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  search?: string;
+}
