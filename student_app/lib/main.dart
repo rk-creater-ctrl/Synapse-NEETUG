@@ -19,6 +19,8 @@ import 'features/learning/presentation/study_analytics_screen.dart';
 import 'features/learning/presentation/daily_leaderboard_screen.dart';
 import 'features/learning/presentation/weekly_leaderboard_screen.dart';
 import 'features/learning/presentation/monthly_leaderboard_screen.dart';
+import 'features/learning/presentation/mentor_detail_screen.dart';
+import 'features/learning/presentation/mentor_discovery_screen.dart';
 
 const _storage = FlutterSecureStorage();
 final _installationIdentityService = InstallationIdentityService();
@@ -248,6 +250,16 @@ class SynapseApp extends StatelessWidget {
         GoRoute(
           path: '/leaderboard/monthly',
           builder: (_, __) => const MonthlyLeaderboardScreen(),
+        ),
+        GoRoute(
+          path: '/mentors',
+          builder: (_, __) => const MentorDiscoveryScreen(),
+        ),
+        GoRoute(
+          path: '/mentors/:mentorId',
+          builder: (_, state) => MentorDetailScreen(
+            mentorId: state.pathParameters['mentorId']!,
+          ),
         ),
         GoRoute(
           path: '/qbank/history',
@@ -523,6 +535,10 @@ class Home extends StatelessWidget {
           SynapseButton(
             label: 'Monthly Leaderboard',
             onPressed: () => context.go('/leaderboard/monthly'),
+          ),
+          SynapseButton(
+            label: 'Mentors',
+            onPressed: () => context.go('/mentors'),
           ),
           SynapseButton(
             label: 'Tests',

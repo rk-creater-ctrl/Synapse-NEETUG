@@ -128,6 +128,18 @@ export class MentorListQueryDto {
   search?: string;
 }
 
+export class StudentMentorListQueryDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 191)
+  subjectId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  search?: string;
+}
+
 export class MentorAvailabilitySlotDto {
   @Type(() => Number)
   @IsInt()

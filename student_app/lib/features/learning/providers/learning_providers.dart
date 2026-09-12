@@ -6,6 +6,7 @@ import '../data/study_analytics_models.dart';
 import '../data/study_leaderboard_models.dart';
 import '../data/learning_api_service.dart';
 import '../data/learning_models.dart';
+import '../data/mentor_discovery_models.dart';
 import '../data/test_models.dart';
 
 final learningApiProvider =
@@ -107,6 +108,20 @@ final weeklyStudyLeaderboardProvider =
 final monthlyStudyLeaderboardProvider =
     FutureProvider.autoDispose<MonthlyStudyLeaderboard>(
   (ref) => ref.read(learningApiProvider).monthlyStudyLeaderboard(),
+);
+
+final mentorDiscoveryProvider = FutureProvider.autoDispose.family<
+    List<StudentMentor>, MentorDiscoveryFilters>(
+  (ref, filters) => ref.read(learningApiProvider).mentors(filters),
+);
+
+final mentorDetailProvider = FutureProvider.autoDispose.family<
+    StudentMentorDetail, String>(
+  (ref, id) => ref.read(learningApiProvider).mentor(id),
+);
+
+final mentorSubjectsProvider = FutureProvider.autoDispose<List<MentorDiscoverySubject>>(
+  (ref) => ref.read(learningApiProvider).mentorSubjects(),
 );
 
 class StudySessionController extends StateNotifier<AsyncValue<StudySession?>> {

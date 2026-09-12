@@ -4,6 +4,7 @@ import 'study_session_models.dart';
 import 'study_analytics_models.dart';
 import 'study_leaderboard_models.dart';
 import 'learning_models.dart';
+import 'mentor_discovery_models.dart';
 import 'test_models.dart';
 
 class LearningApiService {
@@ -257,5 +258,25 @@ class LearningApiService {
     return MonthlyStudyLeaderboard.fromJson(
       Map<String, dynamic>.from(response.data as Map),
     );
+  }
+
+  Future<List<StudentMentor>> mentors(MentorDiscoveryFilters filters) async {
+    final response = await dio.get('/mentors', queryParameters: filters.toQuery());
+    return (response.data as List? ?? const [])
+        .map((item) => StudentMentor.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList();
+  }
+
+  Future<StudentMentorDetail> mentor(String id) async {
+    final response = await dio.get('/mentors/$id');
+    return StudentMentorDetail.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<List<MentorDiscoverySubject>> mentorSubjects() async {
+    final response = await dio.get('/academics/subjects');
+    final body = Map<String, dynamic>.from(response.data as Map);
+    return (body['data'] as List? ?? const [])
+        .map((item) => MentorDiscoverySubject.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList();
   }
 }

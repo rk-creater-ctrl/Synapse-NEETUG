@@ -42,6 +42,17 @@ describe('MentorsService', () => {
     ],
     ...overrides,
   });
+  const discoverableMentor = (overrides: Record<string, unknown> = {}) => ({
+    id: 'mentor-1',
+    fullName: 'Dr Asha',
+    headline: 'Physics mentor',
+    bio: 'Experienced educator',
+    profileImageUrl: null,
+    experienceYears: 8,
+    timezone: 'Asia/Kolkata',
+    expertise: [{ subject: { id: 'physics', name: 'Physics' } }],
+    ...overrides,
+  });
   let db: Record<string, unknown>;
   let profile: Record<string, jest.Mock>;
   let service: MentorsService;
@@ -49,6 +60,7 @@ describe('MentorsService', () => {
   beforeEach(() => {
     profile = {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
@@ -323,5 +335,53 @@ describe('MentorsService', () => {
         { dayOfWeek: 2, startMinute: 60, endMinute: 120 },
       ],
     })).resolves.toMatchObject({ timezone: 'UTC' });
+  });
+
+  it('discovers only active mentors with normalized subject/search filters and stable ordering', async () => {
+    profile.findMany.mockResolvedValueOnce([
+      discoverableMentor({ id: 'mentor-b', fullName: 'Dr Bina' }),
+      discoverableMentor({ id: 'mentor-a', fullName: 'Dr Asha' }),
+    ]);
+    const result = await service.discoverForStudents({ subjectId: 'physics', search: ' asha ' });
+
+    expect(profile.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        isActive: true,
+        expertise: { some: { subjectId: 'physics' } },
+        fullName: { contains: 'asha', mode: 'insensitive' },
+      },
+      orderBy: [{ fullName: 'asc' }, { id: 'asc' }],
+    }));
+    expect(result[0]).toMatchObject({
+      id: 'mentor-b',
+      timezone: 'Asia/Kolkata',
+      subjects: [{ id: 'physics', name: 'Physics' }],
+    });
+    expect(result[0]).not.toHaveProperty('userId');
+    expect(result[0]).not.toHaveProperty('passwordHash');
+    expect(result[0]).not.toHaveProperty('roles');
+  });
+
+  it('returns an active mentor detail with sorted weekly availability and hides inactive or missing mentors', async () => {
+    profile.findFirst.mockResolvedValueOnce(discoverableMentor({
+      availability: [
+        { dayOfWeek: 2, startMinute: 600, endMinute: 660 },
+        { dayOfWeek: 1, startMinute: 840, endMinute: 900 },
+        { dayOfWeek: 1, startMinute: 540, endMinute: 600 },
+      ],
+    }));
+    const result = await service.getDiscoverableMentor('mentor-1');
+    expect(result.availability).toEqual([
+      { dayOfWeek: 1, startMinute: 540, endMinute: 600 },
+      { dayOfWeek: 1, startMinute: 840, endMinute: 900 },
+      { dayOfWeek: 2, startMinute: 600, endMinute: 660 },
+    ]);
+    expect(profile.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'mentor-1', isActive: true },
+    }));
+    expect(result).not.toHaveProperty('userId');
+
+    profile.findFirst.mockResolvedValueOnce(null);
+    await expect(service.getDiscoverableMentor('inactive-or-missing')).rejects.toBeInstanceOf(NotFoundException);
   });
 });

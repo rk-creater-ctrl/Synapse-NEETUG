@@ -12,6 +12,7 @@ import {
   ReplaceMentorAvailabilityDto,
   MentorListQueryDto,
   ReplaceMentorSubjectsDto,
+  StudentMentorListQueryDto,
   UpdateMentorDto,
 } from './mentors.dto';
 
@@ -57,6 +58,40 @@ const mentorAvailabilityProfileSelect = {
 
 type MentorAvailabilityProfileRecord = Prisma.MentorProfileGetPayload<{
   select: typeof mentorAvailabilityProfileSelect;
+}>;
+
+const studentMentorSelect = {
+  id: true,
+  fullName: true,
+  headline: true,
+  bio: true,
+  profileImageUrl: true,
+  experienceYears: true,
+  timezone: true,
+  expertise: {
+    select: {
+      subject: { select: { id: true, name: true } },
+    },
+  },
+} as const;
+
+const studentMentorDetailSelect = {
+  ...studentMentorSelect,
+  availability: {
+    select: {
+      dayOfWeek: true,
+      startMinute: true,
+      endMinute: true,
+    },
+  },
+} as const;
+
+type StudentMentorRecord = Prisma.MentorProfileGetPayload<{
+  select: typeof studentMentorSelect;
+}>;
+
+type StudentMentorDetailRecord = Prisma.MentorProfileGetPayload<{
+  select: typeof studentMentorDetailSelect;
 }>;
 
 @Injectable()
@@ -178,6 +213,38 @@ export class MentorsService {
       });
     }
     return this.toAvailabilityResponse(mentor);
+  }
+
+  async discoverForStudents(query: StudentMentorListQueryDto = new StudentMentorListQueryDto()) {
+    const search = query.search?.trim();
+    const mentors = await this.db.mentorProfile.findMany({
+      where: {
+        isActive: true,
+        ...(query.subjectId
+          ? { expertise: { some: { subjectId: query.subjectId } } }
+          : {}),
+        ...(search
+          ? { fullName: { contains: search, mode: 'insensitive' } }
+          : {}),
+      },
+      orderBy: [{ fullName: 'asc' }, { id: 'asc' }],
+      select: studentMentorSelect,
+    });
+    return mentors.map((mentor) => this.toStudentMentorResponse(mentor));
+  }
+
+  async getDiscoverableMentor(mentorId: string) {
+    const mentor = await this.db.mentorProfile.findFirst({
+      where: { id: mentorId, isActive: true },
+      select: studentMentorDetailSelect,
+    });
+    if (!mentor) {
+      throw new NotFoundException({
+        code: 'MENTOR_PROFILE_NOT_FOUND',
+        message: 'Mentor profile not found.',
+      });
+    }
+    return this.toStudentMentorDetailResponse(mentor);
   }
 
   async replaceOwnAvailability(userId: string, dto: ReplaceMentorAvailabilityDto) {
@@ -439,6 +506,33 @@ export class MentorsService {
         left.startMinute - right.startMinute ||
         left.endMinute - right.endMinute ||
         left.id.localeCompare(right.id),
+      ),
+    };
+  }
+
+  private toStudentMentorResponse(mentor: StudentMentorRecord) {
+    return {
+      id: mentor.id,
+      fullName: mentor.fullName,
+      headline: mentor.headline,
+      bio: mentor.bio,
+      profileImageUrl: mentor.profileImageUrl,
+      experienceYears: mentor.experienceYears,
+      timezone: mentor.timezone,
+      subjects: mentor.expertise
+        .map(({ subject }) => ({ id: subject.id, name: subject.name }))
+        .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)),
+    };
+  }
+
+  private toStudentMentorDetailResponse(mentor: StudentMentorDetailRecord) {
+    const profile = this.toStudentMentorResponse(mentor);
+    return {
+      ...profile,
+      availability: [...mentor.availability].sort((left, right) =>
+        left.dayOfWeek - right.dayOfWeek ||
+        left.startMinute - right.startMinute ||
+        left.endMinute - right.endMinute,
       ),
     };
   }
