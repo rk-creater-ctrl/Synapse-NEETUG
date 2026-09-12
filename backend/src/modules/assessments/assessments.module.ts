@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PrismaService } from '../../core/database/prisma.service';
 import { TestsController } from './tests.controller';
 import { TestsService } from './tests.service';
 import { StudentTestsController } from './student-tests.controller';
@@ -16,6 +17,7 @@ import { TestResultsService } from './test-results.service';
     TestResultsController,
   ],
   providers: [
+    PrismaService,
     TestsService,
     StudentTestsService,
     TestAttemptsService,

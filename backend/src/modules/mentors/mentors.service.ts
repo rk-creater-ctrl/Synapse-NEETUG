@@ -129,6 +129,20 @@ export class MentorsService {
     return this.toResponse(mentor);
   }
 
+  async getOwnProfile(userId: string) {
+    const mentor = await this.db.mentorProfile.findUnique({
+      where: { userId },
+      select: mentorProfileSelect,
+    });
+    if (!mentor) {
+      throw new NotFoundException({
+        code: 'MENTOR_PROFILE_NOT_FOUND',
+        message: 'Mentor profile not found.',
+      });
+    }
+    return this.toResponse(mentor);
+  }
+
   async update(id: string, dto: UpdateMentorDto) {
     this.assertExperienceYears(dto.experienceYears);
     await this.get(id);

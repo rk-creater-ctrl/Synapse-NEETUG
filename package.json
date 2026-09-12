@@ -1,6 +1,6 @@
 {
   "name": "synapse-neetug",
   "private": true,
-  "workspaces": ["backend", "admin"],
-  "scripts": {"dev:api":"npm --workspace backend run start:dev", "dev:admin":"npm --workspace admin run dev"}
+  "workspaces": ["backend", "admin", "mentor"],
+  "scripts": {"dev:api":"npm --workspace backend run start:dev", "dev:admin":"npm --workspace admin run dev", "dev:mentor":"npm --workspace mentor run dev"}
 }

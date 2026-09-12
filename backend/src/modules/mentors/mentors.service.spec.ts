@@ -116,6 +116,28 @@ describe('MentorsService', () => {
     await expect(service.get('missing')).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('returns the safe profile for its authenticated mentor owner, including inactive profiles', async () => {
+    profile.findUnique.mockResolvedValueOnce(mentor());
+    const result = await service.getOwnProfile('user-mentor');
+    expect(result).toMatchObject({
+      id: 'mentor-1',
+      userId: 'user-mentor',
+      fullName: 'Dr Asha',
+      subjects: [{ id: 'physics', name: 'Physics' }],
+    });
+    expect(result).not.toHaveProperty('passwordHash');
+    expect(result).not.toHaveProperty('roles');
+    expect(profile.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId: 'user-mentor' },
+    }));
+
+    profile.findUnique.mockResolvedValueOnce(mentor({ isActive: false }));
+    await expect(service.getOwnProfile('user-mentor')).resolves.toMatchObject({ isActive: false });
+
+    profile.findUnique.mockResolvedValueOnce(null);
+    await expect(service.getOwnProfile('user-mentor')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('lists profiles using active, subject, and full-name filters', async () => {
     profile.findMany.mockResolvedValueOnce([mentor()]);
     profile.count.mockResolvedValueOnce(1);
