@@ -10,6 +10,7 @@ import {
   Length,
   Max,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 const toBoolean = ({ value }: { value: unknown }) =>
@@ -125,4 +126,35 @@ export class MentorListQueryDto {
   @IsString()
   @Length(1, 200)
   search?: string;
+}
+
+export class MentorAvailabilitySlotDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  dayOfWeek!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1439)
+  startMinute!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  endMinute!: number;
+}
+
+export class ReplaceMentorAvailabilityDto {
+  @IsString()
+  @Length(1, 100)
+  timezone!: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MentorAvailabilitySlotDto)
+  slots!: MentorAvailabilitySlotDto[];
 }

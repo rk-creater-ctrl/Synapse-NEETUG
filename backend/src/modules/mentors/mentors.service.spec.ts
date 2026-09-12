@@ -21,9 +21,25 @@ describe('MentorsService', () => {
     profileImageUrl: null,
     experienceYears: 8,
     isActive: true,
+    timezone: 'UTC',
     createdAt: new Date('2026-09-12T10:00:00.000Z'),
     updatedAt: new Date('2026-09-12T10:00:00.000Z'),
     expertise: [{ subject: { id: 'physics', name: 'Physics' } }],
+    ...overrides,
+  });
+  const availability = (overrides: Record<string, unknown> = {}) => ({
+    id: 'mentor-1',
+    timezone: 'Asia/Kolkata',
+    availability: [
+      {
+        id: 'slot-2', dayOfWeek: 1, startMinute: 840, endMinute: 1020,
+        createdAt: new Date('2026-09-13T10:00:00.000Z'), updatedAt: new Date('2026-09-13T10:00:00.000Z'),
+      },
+      {
+        id: 'slot-1', dayOfWeek: 1, startMinute: 540, endMinute: 720,
+        createdAt: new Date('2026-09-13T10:00:00.000Z'), updatedAt: new Date('2026-09-13T10:00:00.000Z'),
+      },
+    ],
     ...overrides,
   });
   let db: Record<string, unknown>;
@@ -215,5 +231,97 @@ describe('MentorsService', () => {
     await expect(service.replaceSubjects('mentor-1', { subjectIds: ['missing'] }))
       .rejects.toBeInstanceOf(BadRequestException);
     expect(profile.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('gets own availability safely, including an empty schedule, in deterministic order', async () => {
+    profile.findUnique.mockResolvedValueOnce(availability());
+    await expect(service.getOwnAvailability('user-mentor')).resolves.toEqual(expect.objectContaining({
+      mentorProfileId: 'mentor-1',
+      timezone: 'Asia/Kolkata',
+      slots: [
+        expect.objectContaining({ id: 'slot-1', dayOfWeek: 1, startMinute: 540 }),
+        expect.objectContaining({ id: 'slot-2', dayOfWeek: 1, startMinute: 840 }),
+      ],
+    }));
+
+    profile.findUnique.mockResolvedValueOnce(availability({ availability: [] }));
+    await expect(service.getOwnAvailability('user-mentor')).resolves.toMatchObject({ slots: [] });
+
+    profile.findUnique.mockResolvedValueOnce(null);
+    await expect(service.getOwnAvailability('missing')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('replaces, clears, and updates recurring availability atomically', async () => {
+    profile.findUnique.mockResolvedValueOnce({ id: 'mentor-1' });
+    profile.update.mockResolvedValueOnce(availability());
+    const result = await service.replaceOwnAvailability('user-mentor', {
+      timezone: 'Asia/Kolkata',
+      slots: [
+        { dayOfWeek: 1, startMinute: 840, endMinute: 1020 },
+        { dayOfWeek: 1, startMinute: 540, endMinute: 720 },
+      ],
+    });
+    expect(result.timezone).toBe('Asia/Kolkata');
+    expect(profile.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'mentor-1' },
+      data: expect.objectContaining({
+        timezone: 'Asia/Kolkata',
+        availability: {
+          deleteMany: {},
+          create: [
+            { dayOfWeek: 1, startMinute: 540, endMinute: 720 },
+            { dayOfWeek: 1, startMinute: 840, endMinute: 1020 },
+          ],
+        },
+      }),
+    }));
+
+    profile.findUnique.mockResolvedValueOnce({ id: 'mentor-1' });
+    profile.update.mockResolvedValueOnce(availability({ timezone: 'UTC', availability: [] }));
+    await expect(service.replaceOwnAvailability('user-mentor', {
+      timezone: 'UTC', slots: [],
+    })).resolves.toMatchObject({ timezone: 'UTC', slots: [] });
+  });
+
+  it('rejects invalid availability before any destructive write', async () => {
+    const invalidCases = [
+      { timezone: 'Not/A_Timezone', slots: [] },
+      { timezone: 'UTC', slots: [{ dayOfWeek: 7, startMinute: 0, endMinute: 1 }] },
+      { timezone: 'UTC', slots: [{ dayOfWeek: 1, startMinute: -1, endMinute: 1 }] },
+      { timezone: 'UTC', slots: [{ dayOfWeek: 1, startMinute: 60, endMinute: 60 }] },
+      {
+        timezone: 'UTC',
+        slots: [
+          { dayOfWeek: 1, startMinute: 60, endMinute: 120 },
+          { dayOfWeek: 1, startMinute: 60, endMinute: 120 },
+        ],
+      },
+      {
+        timezone: 'UTC',
+        slots: [
+          { dayOfWeek: 1, startMinute: 60, endMinute: 180 },
+          { dayOfWeek: 1, startMinute: 120, endMinute: 240 },
+        ],
+      },
+    ];
+
+    for (const input of invalidCases) {
+      await expect(service.replaceOwnAvailability('user-mentor', input)).rejects.toBeInstanceOf(BadRequestException);
+    }
+    expect(profile.update).not.toHaveBeenCalled();
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('accepts adjacent and different-day availability slots', async () => {
+    profile.findUnique.mockResolvedValueOnce({ id: 'mentor-1' });
+    profile.update.mockResolvedValueOnce(availability({ timezone: 'UTC', availability: [] }));
+    await expect(service.replaceOwnAvailability('user-mentor', {
+      timezone: 'UTC',
+      slots: [
+        { dayOfWeek: 1, startMinute: 60, endMinute: 120 },
+        { dayOfWeek: 1, startMinute: 120, endMinute: 180 },
+        { dayOfWeek: 2, startMinute: 60, endMinute: 120 },
+      ],
+    })).resolves.toMatchObject({ timezone: 'UTC' });
   });
 });

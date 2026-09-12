@@ -1,4 +1,9 @@
-import { MentorProfile, MentorTokens } from './mentor-types';
+import {
+  MentorAvailability,
+  MentorProfile,
+  MentorTokens,
+  ReplaceMentorAvailabilityInput,
+} from './mentor-types';
 import { getMentorInstallationId } from './mentor-session';
 
 export class MentorApiError extends Error {
@@ -56,6 +61,21 @@ export function loginMentor(email: string, password: string): Promise<MentorToke
 
 export function getMentorProfile(accessToken: string): Promise<MentorProfile> {
   return request<MentorProfile>('mentors/me', {}, accessToken);
+}
+
+export function getMentorAvailability(accessToken: string): Promise<MentorAvailability> {
+  return request<MentorAvailability>('mentors/me/availability', {}, accessToken);
+}
+
+export function replaceMentorAvailability(
+  accessToken: string,
+  input: ReplaceMentorAvailabilityInput,
+): Promise<MentorAvailability> {
+  return request<MentorAvailability>('mentors/me/availability', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }, accessToken);
 }
 
 export async function logoutMentor(tokens: MentorTokens): Promise<void> {

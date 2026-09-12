@@ -722,12 +722,29 @@ model MentorProfile {
   profileImageUrl String?
   experienceYears Int                       @default(0)
   isActive        Boolean                   @default(true)
+  timezone        String                    @default("UTC")
   createdAt       DateTime                  @default(now())
   updatedAt       DateTime                  @updatedAt
   user            User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expertise       MentorSubjectExpertise[]
+  availability    MentorAvailability[]
 
   @@index([isActive])
+}
+
+model MentorAvailability {
+  id              String        @id @default(cuid())
+  mentorProfileId String
+  /// Weekly recurrence uses 0 = Sunday through 6 = Saturday.
+  dayOfWeek       Int
+  startMinute     Int
+  endMinute       Int
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  mentorProfile   MentorProfile @relation(fields: [mentorProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([mentorProfileId, dayOfWeek, startMinute, endMinute])
+  @@index([mentorProfileId, dayOfWeek])
 }
 
 model MentorSubjectExpertise {

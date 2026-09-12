@@ -9,6 +9,7 @@ import { Prisma, RoleName } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import {
   CreateMentorDto,
+  ReplaceMentorAvailabilityDto,
   MentorListQueryDto,
   ReplaceMentorSubjectsDto,
   UpdateMentorDto,
@@ -23,6 +24,7 @@ const mentorProfileSelect = {
   profileImageUrl: true,
   experienceYears: true,
   isActive: true,
+  timezone: true,
   createdAt: true,
   updatedAt: true,
   expertise: {
@@ -34,6 +36,27 @@ const mentorProfileSelect = {
 
 type MentorProfileRecord = Prisma.MentorProfileGetPayload<{
   select: typeof mentorProfileSelect;
+}>;
+
+const mentorAvailabilitySelect = {
+  id: true,
+  dayOfWeek: true,
+  startMinute: true,
+  endMinute: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+const mentorAvailabilityProfileSelect = {
+  id: true,
+  timezone: true,
+  availability: {
+    select: mentorAvailabilitySelect,
+  },
+} as const;
+
+type MentorAvailabilityProfileRecord = Prisma.MentorProfileGetPayload<{
+  select: typeof mentorAvailabilityProfileSelect;
 }>;
 
 @Injectable()
@@ -141,6 +164,54 @@ export class MentorsService {
       });
     }
     return this.toResponse(mentor);
+  }
+
+  async getOwnAvailability(userId: string) {
+    const mentor = await this.db.mentorProfile.findUnique({
+      where: { userId },
+      select: mentorAvailabilityProfileSelect,
+    });
+    if (!mentor) {
+      throw new NotFoundException({
+        code: 'MENTOR_PROFILE_NOT_FOUND',
+        message: 'Mentor profile not found.',
+      });
+    }
+    return this.toAvailabilityResponse(mentor);
+  }
+
+  async replaceOwnAvailability(userId: string, dto: ReplaceMentorAvailabilityDto) {
+    const timezone = this.normalizeTimezone(dto.timezone);
+    const slots = this.normalizeAvailabilitySlots(dto.slots);
+    const existing = await this.db.mentorProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException({
+        code: 'MENTOR_PROFILE_NOT_FOUND',
+        message: 'Mentor profile not found.',
+      });
+    }
+
+    const mentor = await this.db.$transaction((tx) =>
+      tx.mentorProfile.update({
+        where: { id: existing.id },
+        data: {
+          timezone,
+          availability: {
+            deleteMany: {},
+            create: slots.map((slot) => ({
+              dayOfWeek: slot.dayOfWeek,
+              startMinute: slot.startMinute,
+              endMinute: slot.endMinute,
+            })),
+          },
+        },
+        select: mentorAvailabilityProfileSelect,
+      }),
+    );
+    return this.toAvailabilityResponse(mentor);
   }
 
   async update(id: string, dto: UpdateMentorDto) {
@@ -267,6 +338,88 @@ export class MentorsService {
     return fullName;
   }
 
+  private normalizeTimezone(value: string) {
+    const timezone = value?.trim();
+    if (!timezone) {
+      throw new BadRequestException({
+        code: 'MENTOR_TIMEZONE_INVALID',
+        message: 'A valid IANA timezone is required.',
+      });
+    }
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: timezone }).format();
+    } catch {
+      throw new BadRequestException({
+        code: 'MENTOR_TIMEZONE_INVALID',
+        message: 'A valid IANA timezone is required.',
+      });
+    }
+    return timezone;
+  }
+
+  private normalizeAvailabilitySlots(slots: ReplaceMentorAvailabilityDto['slots']) {
+    if (!Array.isArray(slots)) {
+      throw new BadRequestException({
+        code: 'MENTOR_AVAILABILITY_TIME_INVALID',
+        message: 'Availability slots must be an array.',
+      });
+    }
+
+    const normalized = slots.map((slot) => ({
+      dayOfWeek: slot.dayOfWeek,
+      startMinute: slot.startMinute,
+      endMinute: slot.endMinute,
+    }));
+    const exactSlots = new Set<string>();
+    for (const slot of normalized) {
+      if (!Number.isInteger(slot.dayOfWeek) || slot.dayOfWeek < 0 || slot.dayOfWeek > 6) {
+        throw new BadRequestException({
+          code: 'MENTOR_AVAILABILITY_DAY_INVALID',
+          message: 'Availability day must be between 0 and 6.',
+        });
+      }
+      if (
+        !Number.isInteger(slot.startMinute) ||
+        !Number.isInteger(slot.endMinute) ||
+        slot.startMinute < 0 ||
+        slot.startMinute >= 1440 ||
+        slot.endMinute <= 0 ||
+        slot.endMinute > 1440 ||
+        slot.startMinute >= slot.endMinute
+      ) {
+        throw new BadRequestException({
+          code: 'MENTOR_AVAILABILITY_TIME_INVALID',
+          message: 'Availability times must be valid minutes within one day.',
+        });
+      }
+      const key = `${slot.dayOfWeek}:${slot.startMinute}:${slot.endMinute}`;
+      if (exactSlots.has(key)) {
+        throw new BadRequestException({
+          code: 'MENTOR_AVAILABILITY_DUPLICATE',
+          message: 'Duplicate availability slots are not allowed.',
+        });
+      }
+      exactSlots.add(key);
+    }
+
+    normalized.sort((left, right) =>
+      left.dayOfWeek - right.dayOfWeek ||
+      left.startMinute - right.startMinute ||
+      left.endMinute - right.endMinute,
+    );
+    for (let index = 1; index < normalized.length; index += 1) {
+      const previous = normalized[index - 1];
+      const current = normalized[index];
+      if (previous.dayOfWeek === current.dayOfWeek && previous.endMinute > current.startMinute) {
+        throw new BadRequestException({
+          code: 'MENTOR_AVAILABILITY_OVERLAP',
+          message: 'Availability slots on the same day cannot overlap.',
+        });
+      }
+    }
+    return normalized;
+  }
+
   private toResponse(mentor: MentorProfileRecord) {
     const { expertise, ...profile } = mentor;
     return {
@@ -274,6 +427,19 @@ export class MentorsService {
       subjects: expertise
         .map(({ subject }) => ({ id: subject.id, name: subject.name }))
         .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)),
+    };
+  }
+
+  private toAvailabilityResponse(mentor: MentorAvailabilityProfileRecord) {
+    return {
+      mentorProfileId: mentor.id,
+      timezone: mentor.timezone,
+      slots: [...mentor.availability].sort((left, right) =>
+        left.dayOfWeek - right.dayOfWeek ||
+        left.startMinute - right.startMinute ||
+        left.endMinute - right.endMinute ||
+        left.id.localeCompare(right.id),
+      ),
     };
   }
 
