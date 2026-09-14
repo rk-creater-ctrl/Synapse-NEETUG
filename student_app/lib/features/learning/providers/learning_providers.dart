@@ -124,6 +124,11 @@ final mentorSubjectsProvider = FutureProvider.autoDispose<List<MentorDiscoverySu
   (ref) => ref.read(learningApiProvider).mentorSubjects(),
 );
 
+final mentorBookableSlotsProvider = FutureProvider.autoDispose.family<
+    MentorBookableSlots, MentorBookableSlotsRequest>(
+  (ref, request) => ref.read(learningApiProvider).mentorBookableSlots(request.mentorId, request.date),
+);
+
 class StudySessionController extends StateNotifier<AsyncValue<StudySession?>> {
   final LearningApiService _api;
   bool _mutationInFlight = false;

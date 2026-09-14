@@ -121,3 +121,78 @@ class MentorDiscoveryFilters {
   @override
   int get hashCode => Object.hash(subjectId, search);
 }
+
+class MentorBookableSlot {
+  final DateTime scheduledStartAt;
+  final DateTime scheduledEndAt;
+  final String localStartTime;
+  final String localEndTime;
+
+  const MentorBookableSlot({
+    required this.scheduledStartAt,
+    required this.scheduledEndAt,
+    required this.localStartTime,
+    required this.localEndTime,
+  });
+
+  factory MentorBookableSlot.fromJson(Map<String, dynamic> json) => MentorBookableSlot(
+        scheduledStartAt: DateTime.parse(json['scheduledStartAt']?.toString() ?? ''),
+        scheduledEndAt: DateTime.parse(json['scheduledEndAt']?.toString() ?? ''),
+        localStartTime: json['localStartTime']?.toString() ?? '',
+        localEndTime: json['localEndTime']?.toString() ?? '',
+      );
+}
+
+class MentorBookableSlots {
+  final String mentorId;
+  final String mentorTimezone;
+  final String date;
+  final List<MentorBookableSlot> slots;
+
+  const MentorBookableSlots({required this.mentorId, required this.mentorTimezone, required this.date, required this.slots});
+
+  factory MentorBookableSlots.fromJson(Map<String, dynamic> json) => MentorBookableSlots(
+        mentorId: json['mentorId']?.toString() ?? '',
+        mentorTimezone: json['mentorTimezone']?.toString() ?? 'UTC',
+        date: json['date']?.toString() ?? '',
+        slots: (json['slots'] as List? ?? const [])
+            .map((item) => MentorBookableSlot.fromJson(_mentorMap(item)))
+            .toList(),
+      );
+}
+
+class MentorBooking {
+  final String id;
+  final String status;
+  final DateTime scheduledStartAt;
+  final DateTime scheduledEndAt;
+  final String mentorTimezone;
+  final String localDate;
+  final String localStartTime;
+  final String localEndTime;
+  final DateTime createdAt;
+
+  const MentorBooking({required this.id, required this.status, required this.scheduledStartAt, required this.scheduledEndAt, required this.mentorTimezone, required this.localDate, required this.localStartTime, required this.localEndTime, required this.createdAt});
+
+  factory MentorBooking.fromJson(Map<String, dynamic> json) => MentorBooking(
+        id: json['id']?.toString() ?? '',
+        status: json['status']?.toString() ?? 'PENDING',
+        scheduledStartAt: DateTime.parse(json['scheduledStartAt']?.toString() ?? ''),
+        scheduledEndAt: DateTime.parse(json['scheduledEndAt']?.toString() ?? ''),
+        mentorTimezone: json['mentorTimezone']?.toString() ?? 'UTC',
+        localDate: json['localDate']?.toString() ?? '',
+        localStartTime: json['localStartTime']?.toString() ?? '',
+        localEndTime: json['localEndTime']?.toString() ?? '',
+        createdAt: DateTime.parse(json['createdAt']?.toString() ?? ''),
+      );
+}
+
+class MentorBookableSlotsRequest {
+  final String mentorId;
+  final String date;
+  const MentorBookableSlotsRequest({required this.mentorId, required this.date});
+  @override
+  bool operator ==(Object other) => other is MentorBookableSlotsRequest && other.mentorId == mentorId && other.date == date;
+  @override
+  int get hashCode => Object.hash(mentorId, date);
+}

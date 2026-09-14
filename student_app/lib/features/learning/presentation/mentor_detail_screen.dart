@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../data/mentor_discovery_models.dart';
 import '../providers/learning_providers.dart';
@@ -24,12 +25,12 @@ class MentorDetailScreen extends ConsumerWidget {
             child: const Text('Mentor is unavailable. Retry'),
           ),
         ),
-        data: _body,
+        data: (mentor) => _body(context, mentor),
       ),
     );
   }
 
-  Widget _body(StudentMentorDetail mentor) => ListView(
+  Widget _body(BuildContext context, StudentMentorDetail mentor) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Text(mentor.fullName, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
@@ -60,6 +61,11 @@ class MentorDetailScreen extends ConsumerWidget {
             const Text('This mentor has not shared recurring availability.')
           else
             ..._availabilityRows(mentor.availability),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: () => context.push('/mentors/${mentor.id}/book'),
+            child: const Text('Book 15-minute session'),
+          ),
         ],
       );
 

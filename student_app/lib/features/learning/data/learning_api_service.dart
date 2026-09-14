@@ -279,4 +279,17 @@ class LearningApiService {
         .map((item) => MentorDiscoverySubject.fromJson(Map<String, dynamic>.from(item as Map)))
         .toList();
   }
+
+  Future<MentorBookableSlots> mentorBookableSlots(String mentorId, String date) async {
+    final response = await dio.get('/mentors/$mentorId/bookable-slots', queryParameters: {'date': date});
+    return MentorBookableSlots.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<MentorBooking> createMentorBooking(String mentorId, DateTime scheduledStartAt) async {
+    final response = await dio.post('/mentor-bookings', data: {
+      'mentorId': mentorId,
+      'scheduledStartAt': scheduledStartAt.toUtc().toIso8601String(),
+    });
+    return MentorBooking.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
 }

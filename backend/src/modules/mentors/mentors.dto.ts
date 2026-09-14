@@ -8,6 +8,7 @@ import {
   IsString,
   IsUrl,
   Length,
+  Matches,
   Max,
   Min,
   ValidateNested,
@@ -138,6 +139,22 @@ export class StudentMentorListQueryDto {
   @IsString()
   @Length(1, 200)
   search?: string;
+}
+
+export class MentorBookableSlotsQueryDto {
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  date!: string;
+}
+
+export class CreateMentorBookingDto {
+  @IsString()
+  @Length(1, 191)
+  mentorId!: string;
+
+  @IsString()
+  @Length(20, 40)
+  scheduledStartAt!: string;
 }
 
 export class MentorAvailabilitySlotDto {

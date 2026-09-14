@@ -11,13 +11,16 @@ describe('StudentMentorsController', () => {
       discoverForStudents: jest.fn().mockResolvedValue([]),
       getDiscoverableMentor: jest.fn().mockResolvedValue({ id: 'mentor-1' }),
     };
-    const controller = new StudentMentorsController(mentors as never);
+    const bookings = { bookableSlots: jest.fn().mockResolvedValue({ slots: [] }) };
+    const controller = new StudentMentorsController(mentors as never, bookings as never);
 
     await controller.list({ subjectId: 'physics', search: 'asha' });
     await controller.get('mentor-1');
+    await controller.bookableSlots('mentor-1', { date: '2026-09-14' });
 
     expect(mentors.discoverForStudents).toHaveBeenCalledWith({ subjectId: 'physics', search: 'asha' });
     expect(mentors.getDiscoverableMentor).toHaveBeenCalledWith('mentor-1');
+    expect(bookings.bookableSlots).toHaveBeenCalledWith('mentor-1', '2026-09-14');
   });
 
   it('requires the STUDENT role at the controller level', () => {

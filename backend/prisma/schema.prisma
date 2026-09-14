@@ -131,6 +131,13 @@ enum StudySessionContextType {
   DAILY_STUDY
 }
 
+enum MentorBookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
 model User {
   testAttempts          TestAttempt[]
   id                String              @id @default(cuid())
@@ -152,6 +159,7 @@ model User {
   dailyStudyModules DailyStudyModule[]
   studySessions    StudySession[]
   mentorProfile    MentorProfile?
+  mentorBookings   MentorBooking[]
 }
 
 model Role {
@@ -728,6 +736,7 @@ model MentorProfile {
   user            User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expertise       MentorSubjectExpertise[]
   availability    MentorAvailability[]
+  bookings        MentorBooking[]
 
   @@index([isActive])
 }
@@ -745,6 +754,23 @@ model MentorAvailability {
 
   @@unique([mentorProfileId, dayOfWeek, startMinute, endMinute])
   @@index([mentorProfileId, dayOfWeek])
+}
+
+model MentorBooking {
+  id               String              @id @default(cuid())
+  mentorProfileId  String
+  studentUserId    String
+  scheduledStartAt DateTime
+  scheduledEndAt   DateTime
+  status           MentorBookingStatus @default(PENDING)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  mentorProfile    MentorProfile       @relation(fields: [mentorProfileId], references: [id], onDelete: Cascade)
+  student          User                @relation(fields: [studentUserId], references: [id], onDelete: Cascade)
+
+  @@index([mentorProfileId, scheduledStartAt])
+  @@index([studentUserId, scheduledStartAt])
+  @@index([status])
 }
 
 model MentorSubjectExpertise {
