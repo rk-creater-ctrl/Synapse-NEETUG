@@ -108,9 +108,31 @@ describe('MentorBookingsService', () => {
       status: MentorBookingStatus.PENDING, createdAt: new Date(), mentorProfile: mentor,
       student: { studentProfile: { fullName: 'Student One' } },
     }]);
-    const result = await service.listForMentor('mentor-user');
+    const result = await service.listForMentor('mentor-user', 'all');
     expect(bookings.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { mentorProfileId: 'mentor-1' } }));
     expect(result).toMatchObject([{ student: { fullName: 'Student One' } }]);
     expect(result[0].student).not.toHaveProperty('email');
+  });
+
+  it('uses server-time upcoming and past scopes with deterministic ordering', async () => {
+    const bookings = db.mentorBooking as { findMany: jest.Mock };
+    bookings.findMany.mockResolvedValue([]);
+    const now = new Date('2026-09-14T00:00:00.000Z');
+    await service.listForStudent('student-1', 'upcoming', now);
+    expect(bookings.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ studentUserId: 'student-1', scheduledEndAt: { gt: now }, status: { in: [MentorBookingStatus.PENDING, MentorBookingStatus.CONFIRMED] } }),
+      orderBy: [{ scheduledStartAt: 'asc' }, { id: 'asc' }],
+    }));
+    await service.listForStudent('student-1', 'past', now);
+    expect(bookings.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ studentUserId: 'student-1', OR: expect.any(Array) }),
+      orderBy: [{ scheduledStartAt: 'desc' }, { id: 'desc' }],
+    }));
+  });
+
+  it('returns safe not-found for a student reading another student booking', async () => {
+    const bookings = db.mentorBooking as { findFirst: jest.Mock };
+    bookings.findFirst.mockResolvedValue(null);
+    await expect(service.getForStudent('student-2', 'booking-1')).rejects.toBeInstanceOf(NotFoundException);
   });
 });

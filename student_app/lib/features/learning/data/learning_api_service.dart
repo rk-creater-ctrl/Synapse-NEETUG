@@ -297,4 +297,16 @@ class LearningApiService {
     final response = await dio.post('/mentor-bookings/$bookingId/cancel');
     return MentorBooking.fromJson(Map<String, dynamic>.from(response.data as Map));
   }
+
+  Future<List<MentorBooking>> mentorBookings(String scope) async {
+    final response = await dio.get('/mentor-bookings/me', queryParameters: {'scope': scope});
+    return (response.data as List? ?? const [])
+        .map((item) => MentorBooking.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList();
+  }
+
+  Future<MentorBooking> mentorBooking(String bookingId) async {
+    final response = await dio.get('/mentor-bookings/$bookingId');
+    return MentorBooking.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
 }

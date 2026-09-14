@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { MentorBookingStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
-import { CreateMentorBookingDto } from './mentors.dto';
+import { CreateMentorBookingDto, MentorBookingListQueryDto } from './mentors.dto';
 import {
   formatMentorLocalDate,
   formatMentorLocalTime,
@@ -97,17 +97,35 @@ export class MentorBookingsService {
     }
   }
 
-  async listForMentor(mentorUserId: string) {
+  async listForMentor(mentorUserId: string, scope: MentorBookingListQueryDto['scope'] = 'upcoming', now = new Date()) {
     const mentor = await this.ownMentorProfile(mentorUserId);
     const bookings = await this.db.mentorBooking.findMany({
-      where: { mentorProfileId: mentor.id },
-      orderBy: [{ scheduledStartAt: 'asc' }, { id: 'asc' }],
+      where: { mentorProfileId: mentor.id, ...this.scopeWhere(scope, now) },
+      orderBy: this.scopeOrder(scope),
       select: mentorBookingListSelect,
     });
     return bookings.map((booking) => ({
       ...this.toResponse(booking),
       student: { fullName: booking.student.studentProfile?.fullName ?? 'Student' },
     }));
+  }
+
+  async getForMentor(mentorUserId: string, bookingId: string) {
+    const mentor = await this.ownMentorProfile(mentorUserId);
+    return this.findMentorBooking(bookingId, mentor.id);
+  }
+
+  async listForStudent(studentUserId: string, scope: MentorBookingListQueryDto['scope'] = 'upcoming', now = new Date()) {
+    const bookings = await this.db.mentorBooking.findMany({
+      where: { studentUserId, ...this.scopeWhere(scope, now) },
+      orderBy: this.scopeOrder(scope),
+      select: bookingSelect,
+    });
+    return bookings.map((booking) => this.toResponse(booking));
+  }
+
+  async getForStudent(studentUserId: string, bookingId: string) {
+    return this.findStudentBooking(bookingId, studentUserId);
   }
 
   async confirmForMentor(mentorUserId: string, bookingId: string) {
@@ -205,6 +223,30 @@ export class MentorBookingsService {
     const booking = await this.db.mentorBooking.findFirst({ where: { id: bookingId, studentUserId }, select: bookingSelect });
     if (!booking) this.bookingNotFound();
     return this.toResponse(booking!);
+  }
+
+  private scopeWhere(scope: MentorBookingListQueryDto['scope'], now: Date): Prisma.MentorBookingWhereInput {
+    if (scope === 'upcoming' || !scope) {
+      return {
+        scheduledEndAt: { gt: now },
+        status: { in: [MentorBookingStatus.PENDING, MentorBookingStatus.CONFIRMED] },
+      };
+    }
+    if (scope === 'past') {
+      return {
+        OR: [
+          { scheduledEndAt: { lte: now } },
+          { status: { in: [MentorBookingStatus.CANCELLED, MentorBookingStatus.COMPLETED] } },
+        ],
+      };
+    }
+    return {};
+  }
+
+  private scopeOrder(scope: MentorBookingListQueryDto['scope']): Prisma.MentorBookingOrderByWithRelationInput[] {
+    return scope === 'upcoming' || !scope
+      ? [{ scheduledStartAt: 'asc' }, { id: 'asc' }]
+      : [{ scheduledStartAt: 'desc' }, { id: 'desc' }];
   }
 
   private slotsForDate(

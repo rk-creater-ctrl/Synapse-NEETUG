@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
@@ -6,6 +6,7 @@ import { Roles } from '../../shared/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { MentorBookingsService } from './mentor-bookings.service';
+import { MentorBookingListQueryDto } from './mentors.dto';
 
 type AuthenticatedRequest = { user: { id: string } };
 
@@ -19,8 +20,14 @@ export class MentorBookingLifecycleController {
 
   @Get()
   @ApiOperation({ summary: 'List bookings owned by the authenticated mentor' })
-  list(@Req() request: AuthenticatedRequest) {
-    return this.bookings.listForMentor(request.user.id);
+  list(@Req() request: AuthenticatedRequest, @Query() query: MentorBookingListQueryDto) {
+    return this.bookings.listForMentor(request.user.id, query.scope);
+  }
+
+  @Get(':bookingId')
+  @ApiOperation({ summary: 'Get an authenticated mentor-owned booking' })
+  get(@Req() request: AuthenticatedRequest, @Param('bookingId') bookingId: string) {
+    return this.bookings.getForMentor(request.user.id, bookingId);
   }
 
   @Post(':bookingId/confirm')

@@ -171,8 +171,9 @@ class MentorBooking {
   final String localStartTime;
   final String localEndTime;
   final DateTime createdAt;
+  final MentorBookingMentor mentor;
 
-  const MentorBooking({required this.id, required this.status, required this.scheduledStartAt, required this.scheduledEndAt, required this.mentorTimezone, required this.localDate, required this.localStartTime, required this.localEndTime, required this.createdAt});
+  const MentorBooking({required this.id, required this.status, required this.scheduledStartAt, required this.scheduledEndAt, required this.mentorTimezone, required this.localDate, required this.localStartTime, required this.localEndTime, required this.createdAt, required this.mentor});
 
   factory MentorBooking.fromJson(Map<String, dynamic> json) => MentorBooking(
         id: json['id']?.toString() ?? '',
@@ -184,7 +185,21 @@ class MentorBooking {
         localStartTime: json['localStartTime']?.toString() ?? '',
         localEndTime: json['localEndTime']?.toString() ?? '',
         createdAt: DateTime.parse(json['createdAt']?.toString() ?? ''),
+        mentor: MentorBookingMentor.fromJson(_mentorMap(json['mentor'])),
       );
+}
+
+class MentorBookingMentor {
+  final String id;
+  final String fullName;
+  final String? headline;
+  final String? profileImageUrl;
+  final String timezone;
+  const MentorBookingMentor({required this.id, required this.fullName, required this.headline, required this.profileImageUrl, required this.timezone});
+  factory MentorBookingMentor.fromJson(Map<String, dynamic> json) => MentorBookingMentor(
+    id: json['id']?.toString() ?? '', fullName: json['fullName']?.toString() ?? '',
+    headline: json['headline']?.toString(), profileImageUrl: json['profileImageUrl']?.toString(), timezone: json['timezone']?.toString() ?? 'UTC',
+  );
 }
 
 class MentorBookableSlotsRequest {

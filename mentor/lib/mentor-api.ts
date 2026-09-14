@@ -79,8 +79,8 @@ export function replaceMentorAvailability(
   }, accessToken);
 }
 
-export function getMentorBookings(accessToken: string): Promise<MentorBooking[]> {
-  return request<MentorBooking[]>('mentors/me/bookings', {}, accessToken);
+export function getMentorBookings(accessToken: string, scope: 'upcoming' | 'past' | 'all' = 'upcoming'): Promise<MentorBooking[]> {
+  return request<MentorBooking[]>(`mentors/me/bookings?scope=${encodeURIComponent(scope)}`, {}, accessToken);
 }
 
 export function confirmMentorBooking(accessToken: string, bookingId: string): Promise<MentorBooking> {

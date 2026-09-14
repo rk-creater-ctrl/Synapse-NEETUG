@@ -4,6 +4,7 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsIn,
   IsOptional,
   IsString,
   IsUrl,
@@ -155,6 +156,13 @@ export class CreateMentorBookingDto {
   @IsString()
   @Length(20, 40)
   scheduledStartAt!: string;
+}
+
+export class MentorBookingListQueryDto {
+  @IsOptional()
+  @IsString()
+  @IsIn(['upcoming', 'past', 'all'])
+  scope?: 'upcoming' | 'past' | 'all';
 }
 
 export class MentorAvailabilitySlotDto {

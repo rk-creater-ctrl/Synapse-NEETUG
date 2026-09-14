@@ -139,6 +139,8 @@ class _MentorBookingScreenState extends ConsumerState<MentorBookingScreen> {
     try {
       final cancelled = await ref.read(learningApiProvider).cancelMentorBooking(booking.id);
       ref.invalidate(mentorBookableSlotsProvider(_request));
+      ref.invalidate(mentorBookingsProvider('upcoming'));
+      ref.invalidate(mentorBookingsProvider('past'));
       if (mounted) setState(() => _booking = cancelled);
     } on DioException catch (error) {
       if (mounted) setState(() => _error = error.response?.data is Map ? (error.response!.data['message']?.toString() ?? 'Could not cancel booking.') : 'Could not cancel booking.');

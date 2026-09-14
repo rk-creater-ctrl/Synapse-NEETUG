@@ -16,6 +16,7 @@ import { MentorBooking } from '../../lib/mentor-types';
 export default function MentorBookingsPage() {
   const { status } = useMentorAuth();
   const [bookings, setBookings] = useState<MentorBooking[]>([]);
+  const [scope, setScope] = useState<'upcoming' | 'past' | 'all'>('upcoming');
   const [loading, setLoading] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,10 +25,10 @@ export default function MentorBookingsPage() {
     const session = getMentorSession();
     if (!session) return;
     setLoading(true); setError(null);
-    try { setBookings(await getMentorBookings(session.accessToken)); }
+    try { setBookings(await getMentorBookings(session.accessToken, scope)); }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to load mentor bookings.'); }
     finally { setLoading(false); }
-  }, []);
+  }, [scope]);
 
   useEffect(() => { if (status === 'authenticated') void load(); }, [load, status]);
 
@@ -42,13 +43,17 @@ export default function MentorBookingsPage() {
           ? await cancelMentorBooking(session.accessToken, booking.id)
           : await completeMentorBooking(session.accessToken, booking.id);
       setBookings((current) => current.map((item) => item.id === next.id ? { ...item, ...next, student: item.student } : item));
+      await load();
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Booking action failed.'); }
     finally { setActingId(null); }
   }
 
   return <MentorRouteGuard><section className="card">
     <h1>Bookings</h1>
-    <p className="muted">Manage your pending and confirmed 15-minute sessions.</p>
+    <p className="muted">Manage your upcoming and historical 15-minute sessions.</p>
+    <div className="actions">
+      {(['upcoming', 'past', 'all'] as const).map((nextScope) => <button key={nextScope} type="button" className={scope === nextScope ? '' : 'secondary-button'} disabled={loading || actingId !== null} onClick={() => setScope(nextScope)}>{nextScope[0].toUpperCase() + nextScope.slice(1)}</button>)}
+    </div>
     {loading ? <p className="muted">Loading bookings…</p> : bookings.length === 0 ? <p className="muted">No bookings yet.</p> : <div className="availability-days">
       {bookings.map((booking) => <section className="availability-day" key={booking.id}>
         <h2>{booking.student.fullName}</h2>

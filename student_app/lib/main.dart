@@ -22,6 +22,8 @@ import 'features/learning/presentation/monthly_leaderboard_screen.dart';
 import 'features/learning/presentation/mentor_detail_screen.dart';
 import 'features/learning/presentation/mentor_discovery_screen.dart';
 import 'features/learning/presentation/mentor_booking_screen.dart';
+import 'features/learning/presentation/mentor_sessions_screen.dart';
+import 'features/learning/presentation/mentor_session_detail_screen.dart';
 
 const _storage = FlutterSecureStorage();
 final _installationIdentityService = InstallationIdentityService();
@@ -251,6 +253,16 @@ class SynapseApp extends StatelessWidget {
         GoRoute(
           path: '/leaderboard/monthly',
           builder: (_, __) => const MonthlyLeaderboardScreen(),
+        ),
+        GoRoute(
+          path: '/mentor-sessions',
+          builder: (_, __) => const MentorSessionsScreen(),
+        ),
+        GoRoute(
+          path: '/mentor-sessions/:bookingId',
+          builder: (_, state) => MentorSessionDetailScreen(
+            bookingId: state.pathParameters['bookingId']!,
+          ),
         ),
         GoRoute(
           path: '/mentors',
@@ -546,6 +558,10 @@ class Home extends StatelessWidget {
           SynapseButton(
             label: 'Mentors',
             onPressed: () => context.go('/mentors'),
+          ),
+          SynapseButton(
+            label: 'My mentor sessions',
+            onPressed: () => context.go('/mentor-sessions'),
           ),
           SynapseButton(
             label: 'Tests',

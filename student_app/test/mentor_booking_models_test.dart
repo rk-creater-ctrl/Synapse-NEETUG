@@ -51,4 +51,16 @@ void main() {
     });
     expect(booking.status, 'CANCELLED');
   });
+
+  test('parses completed booking list data with its safe mentor summary', () {
+    final booking = MentorBooking.fromJson({
+      'id': 'booking-2', 'status': 'COMPLETED',
+      'scheduledStartAt': '2026-09-14T03:30:00.000Z', 'scheduledEndAt': '2026-09-14T03:45:00.000Z',
+      'mentorTimezone': 'Asia/Kolkata', 'localDate': '2026-09-14', 'localStartTime': '09:00', 'localEndTime': '09:15',
+      'createdAt': '2026-09-13T00:00:00.000Z',
+      'mentor': {'id': 'mentor-1', 'fullName': 'Dr Asha', 'headline': 'Physics mentor', 'timezone': 'Asia/Kolkata'},
+    });
+    expect(booking.status, 'COMPLETED');
+    expect(booking.mentor.fullName, 'Dr Asha');
+  });
 }
