@@ -23,6 +23,7 @@ export function MentorShell({ children }: { children: ReactNode }) {
           <Link href="/">Dashboard</Link>
           <Link href="/profile">Profile</Link>
           <Link href="/availability">Availability</Link>
+          <Link href="/bookings">Bookings</Link>
           {profile && <span className="mentor-name">{profile.fullName}</span>}
           <button type="button" className="secondary-button" onClick={() => void signOut()}>Logout</button>
         </nav>

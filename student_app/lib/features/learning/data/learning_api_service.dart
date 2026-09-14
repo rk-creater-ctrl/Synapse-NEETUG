@@ -292,4 +292,9 @@ class LearningApiService {
     });
     return MentorBooking.fromJson(Map<String, dynamic>.from(response.data as Map));
   }
+
+  Future<MentorBooking> cancelMentorBooking(String bookingId) async {
+    final response = await dio.post('/mentor-bookings/$bookingId/cancel');
+    return MentorBooking.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
 }

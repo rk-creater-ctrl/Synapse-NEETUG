@@ -18,6 +18,7 @@ class _MentorBookingScreenState extends ConsumerState<MentorBookingScreen> {
   MentorBookableSlot? _selectedSlot;
   MentorBooking? _booking;
   bool _submitting = false;
+  bool _cancelling = false;
   String? _error;
 
   @override
@@ -99,6 +100,15 @@ class _MentorBookingScreenState extends ConsumerState<MentorBookingScreen> {
       Text('Status: ${booking.status}'),
       Text('Mentor timezone: ${booking.mentorTimezone}'),
       const SizedBox(height: 16),
+      if (booking.status == 'PENDING' || booking.status == 'CONFIRMED')
+        FilledButton.tonal(
+          onPressed: _cancelling ? null : () => _cancel(booking),
+          child: Text(_cancelling ? 'Cancelling...' : 'Cancel booking'),
+        ),
+      if (_error != null) Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Text(_error!, style: const TextStyle(color: Colors.red)),
+      ),
       TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Done')),
     ]))),
   );
@@ -121,6 +131,21 @@ class _MentorBookingScreenState extends ConsumerState<MentorBookingScreen> {
       if (mounted) setState(() => _error = 'Could not create booking.');
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _cancel(MentorBooking booking) async {
+    setState(() { _cancelling = true; _error = null; });
+    try {
+      final cancelled = await ref.read(learningApiProvider).cancelMentorBooking(booking.id);
+      ref.invalidate(mentorBookableSlotsProvider(_request));
+      if (mounted) setState(() => _booking = cancelled);
+    } on DioException catch (error) {
+      if (mounted) setState(() => _error = error.response?.data is Map ? (error.response!.data['message']?.toString() ?? 'Could not cancel booking.') : 'Could not cancel booking.');
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not cancel booking.');
+    } finally {
+      if (mounted) setState(() => _cancelling = false);
     }
   }
 }

@@ -42,3 +42,16 @@ export type ReplaceMentorAvailabilityInput = {
   timezone: string;
   slots: Array<Pick<MentorAvailabilitySlot, 'dayOfWeek' | 'startMinute' | 'endMinute'>>;
 };
+
+export type MentorBooking = {
+  id: string;
+  scheduledStartAt: string;
+  scheduledEndAt: string;
+  status: 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED';
+  mentorTimezone: string;
+  localDate: string;
+  localStartTime: string;
+  localEndTime: string;
+  createdAt: string;
+  student: { fullName: string };
+};

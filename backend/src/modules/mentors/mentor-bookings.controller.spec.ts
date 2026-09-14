@@ -12,6 +12,13 @@ describe('MentorBookingsController', () => {
     expect(bookings.create).toHaveBeenCalledWith('student-1', dto);
   });
 
+  it('uses only the authenticated student identity when cancelling', async () => {
+    const bookings = { create: jest.fn(), cancelForStudent: jest.fn().mockResolvedValue({ id: 'booking-1', status: 'CANCELLED' }) };
+    const controller = new MentorBookingsController(bookings as never);
+    await expect(controller.cancel({ user: { id: 'student-1' } }, 'booking-1')).resolves.toMatchObject({ status: 'CANCELLED' });
+    expect(bookings.cancelForStudent).toHaveBeenCalledWith('student-1', 'booking-1');
+  });
+
   it('requires the STUDENT role at the controller level', () => {
     expect(Reflect.getMetadata('roles', MentorBookingsController)).toEqual([RoleName.STUDENT]);
   });

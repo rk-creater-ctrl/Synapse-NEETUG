@@ -39,4 +39,16 @@ void main() {
     expect(booking.localStartTime, '09:00');
     expect(booking.localEndTime, '09:15');
   });
+
+  test('preserves a server-confirmed cancelled booking lifecycle state', () {
+    final booking = MentorBooking.fromJson({
+      'id': 'booking-1', 'status': 'CANCELLED',
+      'scheduledStartAt': '2026-09-14T03:30:00.000Z',
+      'scheduledEndAt': '2026-09-14T03:45:00.000Z',
+      'mentorTimezone': 'UTC', 'localDate': '2026-09-14',
+      'localStartTime': '03:30', 'localEndTime': '03:45',
+      'createdAt': '2026-09-13T00:00:00.000Z',
+    });
+    expect(booking.status, 'CANCELLED');
+  });
 }

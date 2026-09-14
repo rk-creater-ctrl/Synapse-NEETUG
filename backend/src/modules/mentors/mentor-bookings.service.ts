@@ -31,6 +31,11 @@ const bookingSelect = {
   mentorProfile: { select: { id: true, fullName: true, headline: true, profileImageUrl: true, timezone: true } },
 } as const;
 
+const mentorBookingListSelect = {
+  ...bookingSelect,
+  student: { select: { studentProfile: { select: { fullName: true } } } },
+} as const;
+
 @Injectable()
 export class MentorBookingsService {
   constructor(private readonly db: PrismaService) {}
@@ -90,6 +95,116 @@ export class MentorBookingsService {
       }
       throw error;
     }
+  }
+
+  async listForMentor(mentorUserId: string) {
+    const mentor = await this.ownMentorProfile(mentorUserId);
+    const bookings = await this.db.mentorBooking.findMany({
+      where: { mentorProfileId: mentor.id },
+      orderBy: [{ scheduledStartAt: 'asc' }, { id: 'asc' }],
+      select: mentorBookingListSelect,
+    });
+    return bookings.map((booking) => ({
+      ...this.toResponse(booking),
+      student: { fullName: booking.student.studentProfile?.fullName ?? 'Student' },
+    }));
+  }
+
+  async confirmForMentor(mentorUserId: string, bookingId: string) {
+    const mentor = await this.ownMentorProfile(mentorUserId);
+    return this.transitionForMentor(mentor.id, bookingId, MentorBookingStatus.PENDING, MentorBookingStatus.CONFIRMED);
+  }
+
+  async cancelForMentor(mentorUserId: string, bookingId: string) {
+    const mentor = await this.ownMentorProfile(mentorUserId);
+    return this.transitionForMentor(
+      mentor.id,
+      bookingId,
+      [MentorBookingStatus.PENDING, MentorBookingStatus.CONFIRMED],
+      MentorBookingStatus.CANCELLED,
+    );
+  }
+
+  async cancelForStudent(studentUserId: string, bookingId: string) {
+    const updated = await this.db.mentorBooking.updateMany({
+      where: {
+        id: bookingId,
+        studentUserId,
+        status: { in: [MentorBookingStatus.PENDING, MentorBookingStatus.CONFIRMED] },
+      },
+      data: { status: MentorBookingStatus.CANCELLED },
+    });
+    if (updated.count === 0) {
+      const existing = await this.db.mentorBooking.findFirst({
+        where: { id: bookingId, studentUserId },
+        select: { id: true },
+      });
+      if (!existing) this.bookingNotFound();
+      this.invalidTransition();
+    }
+    return this.findStudentBooking(bookingId, studentUserId);
+  }
+
+  async completeForMentor(mentorUserId: string, bookingId: string, now = new Date()) {
+    const mentor = await this.ownMentorProfile(mentorUserId);
+    const updated = await this.db.mentorBooking.updateMany({
+      where: {
+        id: bookingId,
+        mentorProfileId: mentor.id,
+        status: MentorBookingStatus.CONFIRMED,
+        scheduledEndAt: { lte: now },
+      },
+      data: { status: MentorBookingStatus.COMPLETED },
+    });
+    if (updated.count === 0) {
+      const existing = await this.db.mentorBooking.findFirst({
+        where: { id: bookingId, mentorProfileId: mentor.id },
+        select: { id: true, status: true, scheduledEndAt: true },
+      });
+      if (!existing) this.bookingNotFound();
+      if (existing.status === MentorBookingStatus.CONFIRMED && existing.scheduledEndAt > now) this.tooEarlyToComplete();
+      this.invalidTransition();
+    }
+    return this.findMentorBooking(bookingId, mentor.id);
+  }
+
+  private async transitionForMentor(
+    mentorProfileId: string,
+    bookingId: string,
+    from: MentorBookingStatus | MentorBookingStatus[],
+    to: MentorBookingStatus,
+  ) {
+    const updated = await this.db.mentorBooking.updateMany({
+      where: { id: bookingId, mentorProfileId, status: Array.isArray(from) ? { in: from } : from },
+      data: { status: to },
+    });
+    if (updated.count === 0) {
+      const existing = await this.db.mentorBooking.findFirst({
+        where: { id: bookingId, mentorProfileId },
+        select: { id: true },
+      });
+      if (!existing) this.bookingNotFound();
+      this.invalidTransition();
+    }
+    return this.findMentorBooking(bookingId, mentorProfileId);
+  }
+
+  private async ownMentorProfile(userId: string) {
+    const mentor = await this.db.mentorProfile.findUnique({ where: { userId }, select: { id: true } });
+    if (!mentor) throw new NotFoundException({ code: 'MENTOR_PROFILE_NOT_FOUND', message: 'Mentor profile not found.' });
+    return mentor;
+  }
+
+  private async findMentorBooking(bookingId: string, mentorProfileId: string) {
+    const booking = await this.db.mentorBooking.findFirst({ where: { id: bookingId, mentorProfileId }, select: bookingSelect });
+    if (!booking) this.bookingNotFound();
+    return this.toResponse(booking!);
+  }
+
+  private async findStudentBooking(bookingId: string, studentUserId: string) {
+    const booking = await this.db.mentorBooking.findFirst({ where: { id: bookingId, studentUserId }, select: bookingSelect });
+    if (!booking) this.bookingNotFound();
+    return this.toResponse(booking!);
   }
 
   private slotsForDate(
@@ -152,4 +267,7 @@ export class MentorBookingsService {
   private invalidDate(): never { throw new BadRequestException({ code: 'MENTOR_BOOKING_DATE_INVALID', message: 'date must be a valid YYYY-MM-DD value.' }); }
   private notAvailable(): never { throw new BadRequestException({ code: 'MENTOR_BOOKING_NOT_AVAILABLE', message: 'This is not an available future mentor slot.' }); }
   private mentorNotFound(): never { throw new NotFoundException({ code: 'MENTOR_PROFILE_NOT_FOUND', message: 'Mentor profile not found.' }); }
+  private bookingNotFound(): never { throw new NotFoundException({ code: 'MENTOR_BOOKING_NOT_FOUND', message: 'Mentor booking not found.' }); }
+  private invalidTransition(): never { throw new BadRequestException({ code: 'MENTOR_BOOKING_INVALID_TRANSITION', message: 'This booking cannot transition from its current status.' }); }
+  private tooEarlyToComplete(): never { throw new BadRequestException({ code: 'MENTOR_BOOKING_TOO_EARLY_TO_COMPLETE', message: 'This booking cannot be completed before its scheduled end time.' }); }
 }

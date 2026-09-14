@@ -6,11 +6,12 @@ import { MentorSelfController } from './mentor-self.controller';
 import { MentorsController } from './mentors.controller';
 import { StudentMentorsController } from './student-mentors.controller';
 import { MentorBookingsController } from './mentor-bookings.controller';
+import { MentorBookingLifecycleController } from './mentor-booking-lifecycle.controller';
 import { MentorBookingsService } from './mentor-bookings.service';
 import { MentorsService } from './mentors.service';
 
 @Module({
-  controllers: [MentorsController, MentorSelfController, StudentMentorsController, MentorBookingsController],
+  controllers: [MentorsController, MentorSelfController, StudentMentorsController, MentorBookingsController, MentorBookingLifecycleController],
   providers: [MentorsService, MentorBookingsService, PrismaService, RolesGuard],
 })
 export class MentorsModule {}

@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
@@ -22,5 +22,11 @@ export class MentorBookingsController {
   @ApiOperation({ summary: 'Create a fixed 15-minute booking with an active mentor' })
   create(@Req() request: AuthenticatedRequest, @Body() dto: CreateMentorBookingDto) {
     return this.bookings.create(request.user.id, dto);
+  }
+
+  @Post(':bookingId/cancel')
+  @ApiOperation({ summary: 'Cancel the authenticated student booking' })
+  cancel(@Req() request: AuthenticatedRequest, @Param('bookingId') bookingId: string) {
+    return this.bookings.cancelForStudent(request.user.id, bookingId);
   }
 }

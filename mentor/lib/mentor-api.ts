@@ -3,6 +3,7 @@ import {
   MentorProfile,
   MentorTokens,
   ReplaceMentorAvailabilityInput,
+  MentorBooking,
 } from './mentor-types';
 import { getMentorInstallationId } from './mentor-session';
 
@@ -76,6 +77,22 @@ export function replaceMentorAvailability(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
   }, accessToken);
+}
+
+export function getMentorBookings(accessToken: string): Promise<MentorBooking[]> {
+  return request<MentorBooking[]>('mentors/me/bookings', {}, accessToken);
+}
+
+export function confirmMentorBooking(accessToken: string, bookingId: string): Promise<MentorBooking> {
+  return request<MentorBooking>(`mentors/me/bookings/${bookingId}/confirm`, { method: 'POST' }, accessToken);
+}
+
+export function cancelMentorBooking(accessToken: string, bookingId: string): Promise<MentorBooking> {
+  return request<MentorBooking>(`mentors/me/bookings/${bookingId}/cancel`, { method: 'POST' }, accessToken);
+}
+
+export function completeMentorBooking(accessToken: string, bookingId: string): Promise<MentorBooking> {
+  return request<MentorBooking>(`mentors/me/bookings/${bookingId}/complete`, { method: 'POST' }, accessToken);
 }
 
 export async function logoutMentor(tokens: MentorTokens): Promise<void> {
