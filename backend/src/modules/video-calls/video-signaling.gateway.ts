@@ -15,9 +15,10 @@ type JoinPayload = { bookingId: string };
 type SignalPayload = { bookingId: string; offer?: unknown; answer?: unknown; candidate?: unknown };
 
 const MAX_SIGNAL_BYTES = 64 * 1024;
+const socketCorsOrigins = (process.env.CORS_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
 
 @Injectable()
-@WebSocketGateway({ namespace: '/video' })
+@WebSocketGateway({ namespace: '/video', cors: { origin: socketCorsOrigins, credentials: true } })
 export class VideoSignalingGateway implements OnModuleDestroy {
   @WebSocketServer() server!: Server;
   private readonly members = new Map<string, CallMembers>();
