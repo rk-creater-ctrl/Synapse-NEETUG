@@ -9,9 +9,12 @@ import { MentorBookingsController } from './mentor-bookings.controller';
 import { MentorBookingLifecycleController } from './mentor-booking-lifecycle.controller';
 import { MentorBookingsService } from './mentor-bookings.service';
 import { MentorsService } from './mentors.service';
+import { BookingVideoAccessService } from './booking-video-access.service';
+import { VideoCallsModule } from '../video-calls/video-calls.module';
 
 @Module({
+  imports: [VideoCallsModule],
   controllers: [MentorsController, MentorSelfController, StudentMentorsController, MentorBookingsController, MentorBookingLifecycleController],
-  providers: [MentorsService, MentorBookingsService, PrismaService, RolesGuard],
+  providers: [MentorsService, MentorBookingsService, BookingVideoAccessService, PrismaService, RolesGuard],
 })
 export class MentorsModule {}

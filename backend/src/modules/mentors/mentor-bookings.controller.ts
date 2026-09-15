@@ -7,6 +7,7 @@ import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { CreateMentorBookingDto, MentorBookingListQueryDto } from './mentors.dto';
 import { MentorBookingsService } from './mentor-bookings.service';
+import { BookingVideoAccessService } from './booking-video-access.service';
 
 type AuthenticatedRequest = { user: { id: string } };
 
@@ -16,7 +17,10 @@ type AuthenticatedRequest = { user: { id: string } };
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(RoleName.STUDENT)
 export class MentorBookingsController {
-  constructor(private readonly bookings: MentorBookingsService) {}
+  constructor(
+    private readonly bookings: MentorBookingsService,
+    private readonly bookingVideoAccess: BookingVideoAccessService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a fixed 15-minute booking with an active mentor' })
@@ -40,5 +44,11 @@ export class MentorBookingsController {
   @ApiOperation({ summary: 'Cancel the authenticated student booking' })
   cancel(@Req() request: AuthenticatedRequest, @Param('bookingId') bookingId: string) {
     return this.bookings.cancelForStudent(request.user.id, bookingId);
+  }
+
+  @Post(':bookingId/video-access')
+  @ApiOperation({ summary: 'Get temporary video access for an owned confirmed booking' })
+  videoAccess(@Req() request: AuthenticatedRequest, @Param('bookingId') bookingId: string) {
+    return this.bookingVideoAccess.forStudent(request.user.id, bookingId);
   }
 }

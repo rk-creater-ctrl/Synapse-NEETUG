@@ -7,6 +7,7 @@ import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { MentorBookingsService } from './mentor-bookings.service';
 import { MentorBookingListQueryDto } from './mentors.dto';
+import { BookingVideoAccessService } from './booking-video-access.service';
 
 type AuthenticatedRequest = { user: { id: string } };
 
@@ -16,7 +17,10 @@ type AuthenticatedRequest = { user: { id: string } };
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(RoleName.MENTOR)
 export class MentorBookingLifecycleController {
-  constructor(private readonly bookings: MentorBookingsService) {}
+  constructor(
+    private readonly bookings: MentorBookingsService,
+    private readonly bookingVideoAccess: BookingVideoAccessService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List bookings owned by the authenticated mentor' })
@@ -46,5 +50,11 @@ export class MentorBookingLifecycleController {
   @ApiOperation({ summary: 'Complete an owned confirmed booking after its scheduled end' })
   complete(@Req() request: AuthenticatedRequest, @Param('bookingId') bookingId: string) {
     return this.bookings.completeForMentor(request.user.id, bookingId);
+  }
+
+  @Post(':bookingId/video-access')
+  @ApiOperation({ summary: 'Get temporary video access for an owned confirmed booking' })
+  videoAccess(@Req() request: AuthenticatedRequest, @Param('bookingId') bookingId: string) {
+    return this.bookingVideoAccess.forMentor(request.user.id, bookingId);
   }
 }

@@ -138,6 +138,12 @@ enum MentorBookingStatus {
   COMPLETED
 }
 
+enum MentorVideoSessionStatus {
+  PROVISIONING
+  READY
+  FAILED
+}
+
 model User {
   testAttempts          TestAttempt[]
   id                String              @id @default(cuid())
@@ -767,9 +773,25 @@ model MentorBooking {
   updatedAt        DateTime            @updatedAt
   mentorProfile    MentorProfile       @relation(fields: [mentorProfileId], references: [id], onDelete: Cascade)
   student          User                @relation(fields: [studentUserId], references: [id], onDelete: Cascade)
+  videoSession     MentorVideoSession?
 
   @@index([mentorProfileId, scheduledStartAt])
   @@index([studentUserId, scheduledStartAt])
+  @@index([status])
+}
+
+model MentorVideoSession {
+  id               String                   @id @default(cuid())
+  mentorBookingId  String                   @unique
+  provider         String
+  status           MentorVideoSessionStatus @default(PROVISIONING)
+  providerRoomName String?
+  providerRoomUrl  String?
+  roomExpiresAt    DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  mentorBooking    MentorBooking            @relation(fields: [mentorBookingId], references: [id], onDelete: Cascade)
+
   @@index([status])
 }
 

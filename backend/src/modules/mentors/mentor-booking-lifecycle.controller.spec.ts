@@ -12,7 +12,7 @@ describe('MentorBookingLifecycleController', () => {
       cancelForMentor: jest.fn().mockResolvedValue({ status: 'CANCELLED' }),
       completeForMentor: jest.fn().mockResolvedValue({ status: 'COMPLETED' }),
     };
-    const controller = new MentorBookingLifecycleController(bookings as never);
+    const controller = new MentorBookingLifecycleController(bookings as never, { forMentor: jest.fn() } as never);
     const request = { user: { id: 'mentor-user' } };
     await controller.list(request, { scope: 'upcoming' });
     await controller.confirm(request, 'booking-1');
@@ -22,6 +22,13 @@ describe('MentorBookingLifecycleController', () => {
     expect(bookings.confirmForMentor).toHaveBeenCalledWith('mentor-user', 'booking-1');
     expect(bookings.cancelForMentor).toHaveBeenCalledWith('mentor-user', 'booking-1');
     expect(bookings.completeForMentor).toHaveBeenCalledWith('mentor-user', 'booking-1');
+  });
+
+  it('forwards only authenticated mentor identity for video access', async () => {
+    const videoAccess = { forMentor: jest.fn().mockResolvedValue({ bookingId: 'booking-1' }) };
+    const controller = new MentorBookingLifecycleController({} as never, videoAccess as never);
+    await controller.videoAccess({ user: { id: 'mentor-user' } }, 'booking-1');
+    expect(videoAccess.forMentor).toHaveBeenCalledWith('mentor-user', 'booking-1');
   });
 
   it('requires the MENTOR role at the controller level', () => {
