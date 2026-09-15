@@ -33,13 +33,6 @@ import { VideoCallsModule } from './modules/video-calls/video-calls.module';
         JWT_REFRESH_EXPIRES_IN: Joi.string().default('30d'),
         PORT: Joi.number().default(3000),
         CORS_ORIGINS: Joi.string().allow(''),
-        VIDEO_PROVIDER: Joi.string().valid('disabled', 'daily').default('disabled'),
-        DAILY_API_KEY: Joi.when('VIDEO_PROVIDER', {
-          is: 'daily',
-          then: Joi.string().min(1).required(),
-          otherwise: Joi.string().allow(''),
-        }),
-        DAILY_API_BASE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('https://api.daily.co/v1'),
       }),
     }),
     // Global safety net; sensitive auth routes use stricter per-route limits.

@@ -4,6 +4,7 @@ import {
   MentorTokens,
   ReplaceMentorAvailabilityInput,
   MentorBooking,
+  MentorVideoAccess,
 } from './mentor-types';
 import { getMentorInstallationId } from './mentor-session';
 
@@ -93,6 +94,10 @@ export function cancelMentorBooking(accessToken: string, bookingId: string): Pro
 
 export function completeMentorBooking(accessToken: string, bookingId: string): Promise<MentorBooking> {
   return request<MentorBooking>(`mentors/me/bookings/${bookingId}/complete`, { method: 'POST' }, accessToken);
+}
+
+export function getMentorVideoAccess(accessToken: string, bookingId: string): Promise<MentorVideoAccess> {
+  return request<MentorVideoAccess>(`mentors/me/bookings/${bookingId}/video-access`, { method: 'POST' }, accessToken);
 }
 
 export async function logoutMentor(tokens: MentorTokens): Promise<void> {

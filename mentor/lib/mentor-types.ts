@@ -55,3 +55,12 @@ export type MentorBooking = {
   createdAt: string;
   student: { fullName: string };
 };
+
+export type MentorVideoAccess = {
+  bookingId: string;
+  videoSessionId: string;
+  participantRole: 'MENTOR';
+  scheduledStartAt: string;
+  scheduledEndAt: string;
+  accessExpiresAt: string;
+};

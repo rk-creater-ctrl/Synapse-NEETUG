@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 import { MentorRouteGuard } from '../../components/mentor-route-guard';
@@ -12,6 +13,7 @@ import {
 import { useMentorAuth } from '../../lib/mentor-auth-context';
 import { getMentorSession } from '../../lib/mentor-session';
 import { MentorBooking } from '../../lib/mentor-types';
+import { canJoinMentorBooking } from '../../lib/mentor-video';
 
 export default function MentorBookingsPage() {
   const { status } = useMentorAuth();
@@ -63,6 +65,7 @@ export default function MentorBookingsPage() {
           {booking.status === 'PENDING' && <button type="button" disabled={actingId === booking.id} onClick={() => void act(booking, 'confirm')}>Confirm</button>}
           {(booking.status === 'PENDING' || booking.status === 'CONFIRMED') && <button type="button" className="secondary-button" disabled={actingId === booking.id} onClick={() => void act(booking, 'cancel')}>Cancel</button>}
           {booking.status === 'CONFIRMED' && <button type="button" disabled={actingId === booking.id} onClick={() => void act(booking, 'complete')}>Complete</button>}
+          {canJoinMentorBooking(booking) && <Link className="link-button" href={`/bookings/${encodeURIComponent(booking.id)}/call`}>Join Call</Link>}
         </div>
       </section>)}
     </div>}
