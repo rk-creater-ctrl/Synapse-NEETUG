@@ -34,6 +34,7 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
   bool _hasRemoteMedia = false;
   bool _muted = false;
   bool _cameraEnabled = true;
+  bool _sessionEnded = false;
   String _state = 'Authorizing session…';
   String? _error;
 
@@ -46,6 +47,7 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
   Future<void> _initialize() async {
     await _release(notifyPeer: true, disposeRenderers: false);
     if (!mounted) return;
+    _sessionEnded = false;
     setState(() { _state = 'Authorizing session…'; _error = null; });
     try {
       final api = ref.read(learningApiProvider);
@@ -71,6 +73,7 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
         await _peer!.addTrack(track, _localStream!);
       }
       _peer!.onTrack = (event) {
+        if (_sessionEnded) return;
         if (event.streams.isNotEmpty) {
           if (_remoteRendererInitialized) {
             _remoteRenderer.srcObject = event.streams.first;
@@ -84,7 +87,7 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
         }
       };
       _peer!.onConnectionState = (state) {
-        if (!mounted) return;
+        if (!mounted || _sessionEnded) return;
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) setState(() => _state = 'Connected');
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) _fail('Unable to connect to the peer-to-peer call.');
       };
@@ -102,12 +105,10 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
       socket.connect();
       final remaining = bootstrap.accessExpiresAt.difference(DateTime.now()).inMilliseconds;
       if (remaining <= 0) {
-        await _release(notifyPeer: true, disposeRenderers: false);
-        if (mounted) setState(() => _state = 'Session ended');
+        await _endSession();
       } else {
         _endTimer = Timer(Duration(milliseconds: remaining), () async {
-          await _release(notifyPeer: true, disposeRenderers: false);
-          if (mounted) setState(() => _state = 'Session ended');
+          await _endSession();
         });
       }
     } on DioException catch (error) {
@@ -123,6 +124,7 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
     socket.onConnect((_) => socket.emit('video:join', {'bookingId': bootstrap.bookingId}));
     socket.onConnectError((_) => _fail('Unable to connect to the signaling service.'));
     socket.on('video:joined', (_) {
+      if (_sessionEnded) return;
       _joined = true;
       if (mounted) setState(() => _state = 'Waiting for mentor…');
     });
@@ -158,10 +160,17 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
       await _addCandidate(candidate);
     });
     socket.on('video:peer-left', (_) {
+      if (_sessionEnded) return;
       if (_remoteRendererInitialized) {
         _remoteRenderer.srcObject = null;
       }
       if (mounted) setState(() { _hasRemoteMedia = false; _state = 'Waiting for mentor…'; });
+    });
+    socket.on('video:session-ended', (dynamic payload) {
+      final message = _map(payload);
+      if (message['bookingId']?.toString() == bootstrap.bookingId) {
+        unawaited(_endSession());
+      }
     });
     socket.on('video:error', (dynamic payload) => _fail(_signalingErrorMessage(_map(payload)['code'])));
   }
@@ -212,8 +221,21 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
   };
 
   void _fail(String message) {
+    if (_sessionEnded) return;
     unawaited(_release(notifyPeer: true, disposeRenderers: false));
     if (mounted) setState(() { _state = 'Unable to connect'; _error = message; });
+  }
+
+  Future<void> _endSession() async {
+    if (_sessionEnded) return;
+    _sessionEnded = true;
+    await _release(notifyPeer: false, disposeRenderers: false);
+    if (mounted) {
+      setState(() {
+        _state = 'Session ended';
+        _error = 'This mentor session has ended.';
+      });
+    }
   }
 
   Future<void> _release({required bool notifyPeer, required bool disposeRenderers}) async {
@@ -269,8 +291,8 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Colors.red))),
         if (_state == 'Unable to connect') TextButton(onPressed: _initialize, child: const Text('Retry')),
         Wrap(spacing: 8, children: [
-          FilledButton.tonal(onPressed: _localStream == null ? null : _toggleMute, child: Text(_muted ? 'Unmute microphone' : 'Mute microphone')),
-          FilledButton.tonal(onPressed: _localStream == null ? null : _toggleCamera, child: Text(_cameraEnabled ? 'Turn camera off' : 'Turn camera on')),
+          FilledButton.tonal(onPressed: _sessionEnded || _localStream == null ? null : _toggleMute, child: Text(_muted ? 'Unmute microphone' : 'Mute microphone')),
+          FilledButton.tonal(onPressed: _sessionEnded || _localStream == null ? null : _toggleCamera, child: Text(_cameraEnabled ? 'Turn camera off' : 'Turn camera on')),
           FilledButton.tonal(onPressed: () { unawaited(_release(notifyPeer: true, disposeRenderers: false)); context.pop(); }, child: const Text('Leave call')),
         ]),
       ]),

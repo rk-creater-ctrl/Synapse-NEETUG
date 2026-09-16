@@ -34,6 +34,7 @@ export default function MentorBookingCallPage() {
   const joinedRef = useRef(false);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const makingOfferRef = useRef(false);
+  const sessionEndedRef = useRef(false);
   const [callState, setCallState] = useState<CallState>('authorizing');
   const [error, setError] = useState<string | null>(null);
   const [hasLocalMedia, setHasLocalMedia] = useState(false);
@@ -70,13 +71,21 @@ export default function MentorBookingCallPage() {
     router.replace('/bookings');
   }, [releaseResources, router]);
 
+  const endSession = useCallback(() => {
+    if (sessionEndedRef.current) return;
+    sessionEndedRef.current = true;
+    releaseResources(false);
+    setCallState('ended');
+    setError('This mentor session has ended.');
+  }, [releaseResources]);
+
   useEffect(() => {
     if (status !== 'authenticated' || !params.bookingId) return;
     let disposed = false;
     let endTimer: ReturnType<typeof setTimeout> | undefined;
 
     const fail = (message: string) => {
-      if (!disposed) {
+      if (!disposed && !sessionEndedRef.current) {
         releaseResources(true);
         setCallState('error');
         setError(message);
@@ -86,7 +95,7 @@ export default function MentorBookingCallPage() {
     async function negotiateOffer(bootstrap: MentorVideoAccess) {
       const peer = peerRef.current;
       const socket = socketRef.current;
-      if (!peer || !socket?.connected || makingOfferRef.current || peer.signalingState !== 'stable') return;
+      if (sessionEndedRef.current || !peer || !socket?.connected || makingOfferRef.current || peer.signalingState !== 'stable') return;
       makingOfferRef.current = true;
       try {
         const offer = await peer.createOffer();
@@ -102,6 +111,7 @@ export default function MentorBookingCallPage() {
     async function start() {
       const session = getMentorSession();
       if (!session) return;
+      sessionEndedRef.current = false;
       setCallState('authorizing');
       setError(null);
       try {
@@ -148,6 +158,7 @@ export default function MentorBookingCallPage() {
           }
         };
         peer.onconnectionstatechange = () => {
+          if (sessionEndedRef.current) return;
           if (peer.connectionState === 'connected') setCallState('connected');
           if (peer.connectionState === 'failed') fail('Unable to connect to the peer-to-peer call.');
         };
@@ -163,6 +174,7 @@ export default function MentorBookingCallPage() {
         socket.on('connect', () => socket.emit('video:join', { bookingId: bootstrap.bookingId }));
         socket.on('connect_error', () => fail('Unable to connect to the signaling service.'));
         socket.on('video:joined', () => {
+          if (sessionEndedRef.current) return;
           joinedRef.current = true;
           setCallState('waiting');
         });
@@ -192,22 +204,23 @@ export default function MentorBookingCallPage() {
           } catch { fail('Unable to process a peer connection update.'); }
         });
         socket.on('video:peer-left', () => {
+          if (sessionEndedRef.current) return;
           remoteStream.getTracks().forEach((track) => remoteStream.removeTrack(track));
           setHasRemoteMedia(false);
           setCallState('waiting');
+        });
+        socket.on('video:session-ended', (message: { bookingId?: unknown }) => {
+          if (message.bookingId === bootstrap.bookingId) endSession();
         });
         socket.on('video:error', (message: { code?: unknown }) => fail(mentorSignalingErrorMessage(message.code)));
         socket.connect();
 
         const remaining = new Date(bootstrap.accessExpiresAt).getTime() - Date.now();
         if (remaining <= 0) {
-          releaseResources(true);
-          setCallState('ended');
+          endSession();
         } else {
           endTimer = setTimeout(() => {
-            releaseResources(true);
-            setCallState('ended');
-            setError('This session has ended.');
+            endSession();
           }, remaining);
         }
       } catch (caught) {
@@ -221,7 +234,7 @@ export default function MentorBookingCallPage() {
       if (endTimer) clearTimeout(endTimer);
       releaseResources(true);
     };
-  }, [attempt, params.bookingId, releaseResources, status]);
+  }, [attempt, endSession, params.bookingId, releaseResources, status]);
 
   function toggleTracks(kind: 'audio' | 'video') {
     const tracks = kind === 'audio' ? localStreamRef.current?.getAudioTracks() : localStreamRef.current?.getVideoTracks();
@@ -249,8 +262,8 @@ export default function MentorBookingCallPage() {
     {error && <p className="error" role="alert">{error}</p>}
     {callState === 'error' && <button type="button" onClick={() => setAttempt((current) => current + 1)}>Retry</button>}
     <div className="actions">
-      <button type="button" disabled={!hasLocalMedia} onClick={() => toggleTracks('audio')}>{microphoneEnabled ? 'Mute microphone' : 'Unmute microphone'}</button>
-      <button type="button" className="secondary-button" disabled={!hasLocalMedia} onClick={() => toggleTracks('video')}>{cameraEnabled ? 'Turn camera off' : 'Turn camera on'}</button>
+      <button type="button" disabled={!hasLocalMedia || callState === 'ended'} onClick={() => toggleTracks('audio')}>{microphoneEnabled ? 'Mute microphone' : 'Unmute microphone'}</button>
+      <button type="button" className="secondary-button" disabled={!hasLocalMedia || callState === 'ended'} onClick={() => toggleTracks('video')}>{cameraEnabled ? 'Turn camera off' : 'Turn camera on'}</button>
       <button type="button" className="secondary-button" onClick={leaveCall}>Leave Call</button>
     </div>
   </section></MentorRouteGuard>;

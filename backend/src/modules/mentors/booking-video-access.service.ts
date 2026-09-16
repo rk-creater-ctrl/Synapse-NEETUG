@@ -2,6 +2,7 @@ import { ConflictException, Injectable, InternalServerErrorException, NotFoundEx
 import { MentorBookingStatus, MentorVideoSessionStatus, Prisma, RoleName } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
+import { MentorVideoSessionLifecycleService } from './mentor-video-session-lifecycle.service';
 
 export const VIDEO_ACCESS_EARLY_WINDOW_MS = 5 * 60 * 1000;
 
@@ -26,7 +27,10 @@ export type VideoCallBootstrap = {
 
 @Injectable()
 export class BookingVideoAccessService {
-  constructor(private readonly db: PrismaService) {}
+  constructor(
+    private readonly db: PrismaService,
+    private readonly lifecycle: MentorVideoSessionLifecycleService,
+  ) {}
 
   async forStudent(studentUserId: string, bookingId: string, now = new Date()): Promise<VideoCallBootstrap> {
     const booking = await this.db.mentorBooking.findFirst({ where: { id: bookingId, studentUserId }, select: bookingAccessSelect });
@@ -55,7 +59,7 @@ export class BookingVideoAccessService {
   }
 
   private async bootstrap(booking: AccessBooking, participantRole: VideoCallParticipantRole, now: Date): Promise<VideoCallBootstrap> {
-    this.assertEligible(booking, now);
+    await this.assertEligible(booking, now);
     const videoSessionId = await this.ensureSession(booking.id);
     return { bookingId: booking.id, videoSessionId, participantRole, scheduledStartAt: booking.scheduledStartAt, scheduledEndAt: booking.scheduledEndAt, accessExpiresAt: booking.scheduledEndAt };
   }
@@ -81,7 +85,7 @@ export class BookingVideoAccessService {
     }
   }
 
-  private assertEligible(booking: AccessBooking, now: Date) {
+  private async assertEligible(booking: AccessBooking, now: Date) {
     if (booking.status !== MentorBookingStatus.CONFIRMED) {
       throw new ConflictException({ code: 'VIDEO_CALL_BOOKING_NOT_CONFIRMED', message: 'Video access requires a confirmed booking.' });
     }
@@ -89,7 +93,18 @@ export class BookingVideoAccessService {
       throw new ConflictException({ code: 'VIDEO_CALL_TOO_EARLY', message: 'Video access is not open yet.' });
     }
     if (now.getTime() >= booking.scheduledEndAt.getTime()) {
+      await this.reconcileExpiredSession(booking.id, now);
       throw new ConflictException({ code: 'VIDEO_CALL_ENDED', message: 'Video access has ended for this booking.' });
+    }
+  }
+
+  private async reconcileExpiredSession(mentorBookingId: string, now: Date) {
+    const session = await this.db.mentorVideoSession.findUnique({
+      where: { mentorBookingId },
+      select: { id: true },
+    });
+    if (session) {
+      await this.lifecycle.end(session.id, now);
     }
   }
 

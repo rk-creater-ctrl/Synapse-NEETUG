@@ -9,6 +9,7 @@ describe('BookingVideoAccessService', () => {
     scheduledStartAt: new Date('2026-09-15T10:04:00.000Z'), scheduledEndAt: new Date('2026-09-15T10:19:00.000Z'), mentorProfileId: 'mentor-1', ...overrides,
   });
   let db: Record<string, unknown>;
+  let lifecycle: { end: jest.Mock };
   let service: BookingVideoAccessService;
 
   beforeEach(() => {
@@ -17,7 +18,8 @@ describe('BookingVideoAccessService', () => {
       mentorBooking: { findFirst: jest.fn().mockResolvedValue(booking()) },
       mentorVideoSession: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'video-1' }) },
     };
-    service = new BookingVideoAccessService(db as never);
+    lifecycle = { end: jest.fn().mockResolvedValue(undefined) };
+    service = new BookingVideoAccessService(db as never, lifecycle as never);
   });
 
   it('returns a non-secret student bootstrap and creates one local session', async () => {
@@ -42,6 +44,16 @@ describe('BookingVideoAccessService', () => {
     await expect(service.forStudent('student-1', 'booking-1', new Date('2026-09-15T09:58:59.999Z'))).rejects.toMatchObject({ response: { code: 'VIDEO_CALL_TOO_EARLY' } });
     (db.mentorBooking as { findFirst: jest.Mock }).findFirst.mockResolvedValue(booking({ scheduledEndAt: now }));
     await expect(service.forStudent('student-1', 'booking-1', now)).rejects.toMatchObject({ response: { code: 'VIDEO_CALL_ENDED' } });
+  });
+
+  it('lazily ends an existing session when expired access is attempted', async () => {
+    (db.mentorBooking as { findFirst: jest.Mock }).findFirst.mockResolvedValue(booking({ scheduledEndAt: now }));
+    (db.mentorVideoSession as { findUnique: jest.Mock }).findUnique.mockResolvedValue({ id: 'video-1' });
+
+    await expect(service.forStudent('student-1', 'booking-1', now)).rejects.toMatchObject({
+      response: { code: 'VIDEO_CALL_ENDED' },
+    });
+    expect(lifecycle.end).toHaveBeenCalledWith('video-1', now);
   });
 
   it('reuses an existing booking-scoped local call session', async () => {
