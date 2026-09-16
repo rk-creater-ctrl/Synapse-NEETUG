@@ -202,6 +202,26 @@ class MentorBookingMentor {
   );
 }
 
+class MentorVideoAccess {
+  final String bookingId;
+  final String videoSessionId;
+  final String participantRole;
+  final DateTime scheduledStartAt;
+  final DateTime scheduledEndAt;
+  final DateTime accessExpiresAt;
+
+  const MentorVideoAccess({required this.bookingId, required this.videoSessionId, required this.participantRole, required this.scheduledStartAt, required this.scheduledEndAt, required this.accessExpiresAt});
+
+  factory MentorVideoAccess.fromJson(Map<String, dynamic> json) => MentorVideoAccess(
+        bookingId: json['bookingId']?.toString() ?? '',
+        videoSessionId: json['videoSessionId']?.toString() ?? '',
+        participantRole: json['participantRole']?.toString() ?? '',
+        scheduledStartAt: DateTime.parse(json['scheduledStartAt']?.toString() ?? ''),
+        scheduledEndAt: DateTime.parse(json['scheduledEndAt']?.toString() ?? ''),
+        accessExpiresAt: DateTime.parse(json['accessExpiresAt']?.toString() ?? ''),
+      );
+}
+
 class MentorBookableSlotsRequest {
   final String mentorId;
   final String date;

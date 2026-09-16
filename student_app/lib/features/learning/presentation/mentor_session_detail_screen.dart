@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../data/mentor_discovery_models.dart';
 import '../providers/learning_providers.dart';
@@ -39,6 +40,9 @@ class _MentorSessionDetailScreenState extends ConsumerState<MentorSessionDetailS
     Text('Status: ${booking.status}'),
     if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Colors.red))),
     const SizedBox(height: 20),
+    if (booking.status == 'CONFIRMED')
+      FilledButton(onPressed: () => context.push('/mentor-sessions/${booking.id}/call'), child: const Text('Join Call')),
+    if (booking.status == 'CONFIRMED') const SizedBox(height: 8),
     if (booking.status == 'PENDING' || booking.status == 'CONFIRMED')
       FilledButton.tonal(onPressed: _cancelling ? null : () => _cancel(booking), child: Text(_cancelling ? 'Cancelling...' : 'Cancel session')),
   ]));

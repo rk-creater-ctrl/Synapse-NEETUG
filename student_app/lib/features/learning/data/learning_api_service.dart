@@ -309,4 +309,9 @@ class LearningApiService {
     final response = await dio.get('/mentor-bookings/$bookingId');
     return MentorBooking.fromJson(Map<String, dynamic>.from(response.data as Map));
   }
+
+  Future<MentorVideoAccess> mentorVideoAccess(String bookingId) async {
+    final response = await dio.post('/mentor-bookings/$bookingId/video-access');
+    return MentorVideoAccess.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
 }
