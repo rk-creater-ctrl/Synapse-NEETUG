@@ -49,4 +49,16 @@ describe('BookingVideoAccessService', () => {
     await expect(service.forStudent('student-1', 'booking-1', now)).resolves.toMatchObject({ videoSessionId: 'video-existing' });
     expect((db.mentorVideoSession as { create: jest.Mock }).create).not.toHaveBeenCalled();
   });
+
+  it('does not resurrect an ended local call session', async () => {
+    (db.mentorVideoSession as { findUnique: jest.Mock }).findUnique.mockResolvedValue({
+      id: 'video-ended',
+      status: MentorVideoSessionStatus.ENDED,
+    });
+
+    await expect(service.forStudent('student-1', 'booking-1', now)).rejects.toMatchObject({
+      response: { code: 'VIDEO_CALL_ENDED' },
+    });
+    expect((db.mentorVideoSession as { create: jest.Mock }).create).not.toHaveBeenCalled();
+  });
 });

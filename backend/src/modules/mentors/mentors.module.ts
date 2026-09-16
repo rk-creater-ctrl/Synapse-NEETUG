@@ -10,10 +10,11 @@ import { MentorBookingLifecycleController } from './mentor-booking-lifecycle.con
 import { MentorBookingsService } from './mentor-bookings.service';
 import { MentorsService } from './mentors.service';
 import { BookingVideoAccessService } from './booking-video-access.service';
+import { MentorVideoSessionLifecycleService } from './mentor-video-session-lifecycle.service';
 
 @Module({
   controllers: [MentorsController, MentorSelfController, StudentMentorsController, MentorBookingsController, MentorBookingLifecycleController],
-  providers: [MentorsService, MentorBookingsService, BookingVideoAccessService, PrismaService, RolesGuard],
-  exports: [BookingVideoAccessService],
+  providers: [MentorsService, MentorBookingsService, BookingVideoAccessService, MentorVideoSessionLifecycleService, PrismaService, RolesGuard],
+  exports: [BookingVideoAccessService, MentorVideoSessionLifecycleService],
 })
 export class MentorsModule {}

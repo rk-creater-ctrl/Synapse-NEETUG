@@ -61,15 +61,21 @@ export class BookingVideoAccessService {
   }
 
   private async ensureSession(mentorBookingId: string): Promise<string> {
-    const existing = await this.db.mentorVideoSession.findUnique({ where: { mentorBookingId }, select: { id: true } });
-    if (existing) return existing.id;
+    const existing = await this.db.mentorVideoSession.findUnique({ where: { mentorBookingId }, select: { id: true, status: true } });
+    if (existing) {
+      if (existing.status === MentorVideoSessionStatus.ENDED) this.sessionEnded();
+      return existing.id;
+    }
     try {
       const created = await this.db.mentorVideoSession.create({ data: { mentorBookingId, status: MentorVideoSessionStatus.READY }, select: { id: true } });
       return created.id;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        const concurrent = await this.db.mentorVideoSession.findUnique({ where: { mentorBookingId }, select: { id: true } });
-        if (concurrent) return concurrent.id;
+        const concurrent = await this.db.mentorVideoSession.findUnique({ where: { mentorBookingId }, select: { id: true, status: true } });
+        if (concurrent) {
+          if (concurrent.status === MentorVideoSessionStatus.ENDED) this.sessionEnded();
+          return concurrent.id;
+        }
       }
       throw new InternalServerErrorException({ code: 'VIDEO_SESSION_PERSISTENCE_FAILED', message: 'Video session setup could not be persisted.' });
     }
@@ -85,6 +91,10 @@ export class BookingVideoAccessService {
     if (now.getTime() >= booking.scheduledEndAt.getTime()) {
       throw new ConflictException({ code: 'VIDEO_CALL_ENDED', message: 'Video access has ended for this booking.' });
     }
+  }
+
+  private sessionEnded(): never {
+    throw new ConflictException({ code: 'VIDEO_CALL_ENDED', message: 'Video access has ended for this booking.' });
   }
 
   private bookingNotFound(): never {

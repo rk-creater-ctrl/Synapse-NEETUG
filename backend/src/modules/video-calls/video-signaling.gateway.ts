@@ -6,6 +6,7 @@ import { ConnectedSocket, MessageBody, SubscribeMessage, WebSocketGateway, WebSo
 import { Server, Socket } from 'socket.io';
 
 import { BookingVideoAccessService, VideoCallParticipantRole } from '../mentors/booking-video-access.service';
+import { MentorVideoSessionLifecycleService } from '../mentors/mentor-video-session-lifecycle.service';
 
 type SocketIdentity = { id: string; roles: RoleName[] };
 type JoinedCall = { bookingId: string; videoSessionId: string; role: VideoCallParticipantRole };
@@ -23,7 +24,12 @@ export class VideoSignalingGateway implements OnModuleDestroy {
   @WebSocketServer() server!: Server;
   private readonly members = new Map<string, CallMembers>();
 
-  constructor(private readonly jwt: JwtService, private readonly config: ConfigService, private readonly access: BookingVideoAccessService) {}
+  constructor(
+    private readonly jwt: JwtService,
+    private readonly config: ConfigService,
+    private readonly access: BookingVideoAccessService,
+    private readonly lifecycle: MentorVideoSessionLifecycleService,
+  ) {}
 
   async handleConnection(socket: VideoSocket) {
     const token = this.accessToken(socket);
@@ -54,8 +60,16 @@ export class VideoSignalingGateway implements OnModuleDestroy {
       this.members.set(bootstrap.videoSessionId, current);
       socket.data.joinedCall = { bookingId: bootstrap.bookingId, videoSessionId: bootstrap.videoSessionId, role: bootstrap.participantRole };
       await socket.join(this.roomName(bootstrap.videoSessionId));
-      socket.emit('video:joined', { bookingId: bootstrap.bookingId, videoSessionId: bootstrap.videoSessionId, participantRole: bootstrap.participantRole, accessExpiresAt: bootstrap.accessExpiresAt });
       const oppositeId = current[oppositeKey];
+      if (oppositeId) {
+        try {
+          await this.lifecycle.activate(bootstrap.videoSessionId);
+        } catch (error) {
+          this.removeMembership(socket, false);
+          return this.applicationError(socket, error);
+        }
+      }
+      socket.emit('video:joined', { bookingId: bootstrap.bookingId, videoSessionId: bootstrap.videoSessionId, participantRole: bootstrap.participantRole, accessExpiresAt: bootstrap.accessExpiresAt });
       if (oppositeId) {
         this.server.to(oppositeId).emit('video:peer-joined', { participantRole: bootstrap.participantRole });
         socket.emit('video:peer-joined', { participantRole: oppositeKey === 'mentor' ? 'MENTOR' : 'STUDENT' });
@@ -102,9 +116,10 @@ export class VideoSignalingGateway implements OnModuleDestroy {
     const members = this.members.get(joined.videoSessionId);
     if (members) {
       const key = joined.role === 'MENTOR' ? 'mentor' : 'student';
-      if (members[key] === socket.id) delete members[key];
+      const wasCurrentMember = members[key] === socket.id;
+      if (wasCurrentMember) delete members[key];
       const oppositeId = joined.role === 'MENTOR' ? members.student : members.mentor;
-      if (notifyPeer && oppositeId) this.server.to(oppositeId).emit('video:peer-left', { participantRole: joined.role });
+      if (notifyPeer && wasCurrentMember && oppositeId) this.server.to(oppositeId).emit('video:peer-left', { participantRole: joined.role });
       if (!members.mentor && !members.student) this.members.delete(joined.videoSessionId);
     }
     socket.data.joinedCall = undefined;
