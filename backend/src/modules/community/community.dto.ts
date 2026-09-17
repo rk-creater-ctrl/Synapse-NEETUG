@@ -1,4 +1,4 @@
-import { CommunityType, CommunityVisibility } from '@prisma/client';
+import { CommunityMemberRole, CommunityType, CommunityVisibility } from '@prisma/client';
 import { IsEnum, IsOptional, IsString, Length } from 'class-validator';
 
 export class CreateCommunityDto {
@@ -16,4 +16,15 @@ export class CreateCommunityDto {
 
   @IsEnum(CommunityVisibility)
   visibility!: CommunityVisibility;
+}
+
+export class AddCommunityMemberDto {
+  @IsString()
+  @Length(1, 191)
+  userId!: string;
+}
+
+export class UpdateCommunityMemberRoleDto {
+  @IsEnum(CommunityMemberRole)
+  role!: CommunityMemberRole;
 }

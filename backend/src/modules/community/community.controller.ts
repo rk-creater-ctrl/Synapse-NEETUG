@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
-import { CreateCommunityDto } from './community.dto';
+import { AddCommunityMemberDto, CreateCommunityDto, UpdateCommunityMemberRoleDto } from './community.dto';
 import { CommunityService } from './community.service';
 
 type AuthenticatedRequest = { user: { id: string } };
@@ -20,10 +20,65 @@ export class CommunityController {
     return this.communities.create(request.user.id, dto);
   }
 
+  @Get()
+  @ApiOperation({ summary: 'Discover public communities' })
+  discover(@Req() request: AuthenticatedRequest) {
+    return this.communities.discoverPublic(request.user.id);
+  }
+
   @Get('me')
   @ApiOperation({ summary: 'List communities for the authenticated member' })
   listMine(@Req() request: AuthenticatedRequest) {
     return this.communities.listForUser(request.user.id);
+  }
+
+  @Post(':communityId/join')
+  @ApiOperation({ summary: 'Join a public group as a community member' })
+  join(@Req() request: AuthenticatedRequest, @Param('communityId') communityId: string) {
+    return this.communities.joinPublicGroup(request.user.id, communityId);
+  }
+
+  @Post(':communityId/leave')
+  @ApiOperation({ summary: 'Leave an owned community membership' })
+  leave(@Req() request: AuthenticatedRequest, @Param('communityId') communityId: string) {
+    return this.communities.leave(request.user.id, communityId);
+  }
+
+  @Post(':communityId/members')
+  @ApiOperation({ summary: 'Add a member to a community as owner or admin' })
+  addMember(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Body() dto: AddCommunityMemberDto,
+  ) {
+    return this.communities.addMember(request.user.id, communityId, dto.userId);
+  }
+
+  @Get(':communityId/members')
+  @ApiOperation({ summary: 'List safe active community members' })
+  listMembers(@Req() request: AuthenticatedRequest, @Param('communityId') communityId: string) {
+    return this.communities.listMembers(request.user.id, communityId);
+  }
+
+  @Patch(':communityId/members/:userId/role')
+  @ApiOperation({ summary: 'Update a managed community member role' })
+  updateMemberRole(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Param('userId') userId: string,
+    @Body() dto: UpdateCommunityMemberRoleDto,
+  ) {
+    return this.communities.updateMemberRole(request.user.id, communityId, userId, dto.role);
+  }
+
+  @Delete(':communityId/members/:userId')
+  @ApiOperation({ summary: 'Remove a managed community member without banning them' })
+  removeMember(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.communities.removeMember(request.user.id, communityId, userId);
   }
 
   @Get(':communityId')
