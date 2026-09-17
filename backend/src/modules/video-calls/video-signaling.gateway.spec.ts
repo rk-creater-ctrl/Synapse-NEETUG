@@ -48,12 +48,14 @@ describe('VideoSignalingGateway', () => {
       .mockResolvedValueOnce({ bookingId: 'booking-1', videoSessionId: 'video-1', participantRole: 'STUDENT', scheduledEndAt, accessExpiresAt: scheduledEndAt });
     const mentor = socket('mentor-socket', { id: 'mentor-user', roles: [RoleName.MENTOR] });
     const student = socket('student-socket', { id: 'student-user', roles: [RoleName.STUDENT] });
+    (gateway.server.sockets.sockets as Map<string, unknown>).set(mentor.id, mentor);
+    (gateway.server.sockets.sockets as Map<string, unknown>).set(student.id, student);
     await gateway.join(mentor as never, { bookingId: 'booking-1' });
     expect(lifecycle.activate).not.toHaveBeenCalled();
     await gateway.join(student as never, { bookingId: 'booking-1' });
     expect(lifecycle.activate).toHaveBeenCalledWith('video-1');
-    await gateway.offer(mentor as never, { bookingId: 'booking-1', offer: { type: 'offer', sdp: 'safe-sdp' } });
-    expect(emitted).toContainEqual({ target: 'student-socket', event: 'video:offer', payload: { bookingId: 'booking-1', offer: { type: 'offer', sdp: 'safe-sdp' } } });
+    await gateway.offer(mentor as never, { bookingId: 'booking-1', generation: 2, offer: { type: 'offer', sdp: 'safe-sdp' } });
+    expect(emitted).toContainEqual({ target: 'student-socket', event: 'video:offer', payload: { bookingId: 'booking-1', generation: 2, offer: { type: 'offer', sdp: 'safe-sdp' } } });
     expect(emitted.some((item) => item.target === 'mentor-socket' && item.event === 'video:offer')).toBe(false);
   });
 
@@ -78,7 +80,7 @@ describe('VideoSignalingGateway', () => {
     gateway.handleDisconnect(mentor as never);
 
     expect(lifecycle.activate).toHaveBeenCalledTimes(1);
-    expect(emitted).toContainEqual({ target: 'mentor-socket', event: 'video:peer-left', payload: { participantRole: 'STUDENT' } });
+    expect(emitted).toContainEqual({ target: 'mentor-socket', event: 'video:peer-left', payload: { bookingId: 'booking-1', participantRole: 'STUDENT', generation: 2 } });
   });
 
   it('keeps lifecycle presence stable when a same-role reconnect replaces an older socket', async () => {
@@ -232,10 +234,36 @@ describe('VideoSignalingGateway', () => {
 
     await gateway.join(mentor as never, { bookingId: 'booking-1' });
     jest.setSystemTime(endAt);
-    await gateway.offer(mentor as never, { bookingId: 'booking-1', offer: { type: 'offer', sdp: 'safe-sdp' } });
+    await gateway.offer(mentor as never, { bookingId: 'booking-1', generation: 1, offer: { type: 'offer', sdp: 'safe-sdp' } });
 
     expect(lifecycle.end).toHaveBeenCalledTimes(1);
     expect(mentor.emit).toHaveBeenCalledWith('video:error', expect.objectContaining({ code: 'VIDEO_CALL_ENDED' }));
     expect(emitted.some((item) => item.event === 'video:offer')).toBe(false);
+  });
+
+  it('rejects stale replaced sockets and stale negotiation generations without evicting the replacement', async () => {
+    access.forSocket
+      .mockResolvedValueOnce({ bookingId: 'booking-1', videoSessionId: 'video-1', participantRole: 'MENTOR', scheduledEndAt, accessExpiresAt: scheduledEndAt })
+      .mockResolvedValueOnce({ bookingId: 'booking-1', videoSessionId: 'video-1', participantRole: 'STUDENT', scheduledEndAt, accessExpiresAt: scheduledEndAt })
+      .mockResolvedValueOnce({ bookingId: 'booking-1', videoSessionId: 'video-1', participantRole: 'MENTOR', scheduledEndAt, accessExpiresAt: scheduledEndAt });
+    const originalMentor = socket('mentor-original', { id: 'mentor-user', roles: [RoleName.MENTOR] });
+    const student = socket('student-socket', { id: 'student-user', roles: [RoleName.STUDENT] });
+    const replacementMentor = socket('mentor-replacement', { id: 'mentor-user', roles: [RoleName.MENTOR] });
+    const sockets = gateway.server.sockets.sockets as Map<string, unknown>;
+    sockets.set(originalMentor.id, originalMentor);
+    sockets.set(student.id, student);
+    sockets.set(replacementMentor.id, replacementMentor);
+
+    await gateway.join(originalMentor as never, { bookingId: 'booking-1' });
+    await gateway.join(student as never, { bookingId: 'booking-1' });
+    await gateway.join(replacementMentor as never, { bookingId: 'booking-1' });
+
+    await gateway.offer(originalMentor as never, { bookingId: 'booking-1', generation: 2, offer: { type: 'offer', sdp: 'stale' } });
+    await gateway.offer(replacementMentor as never, { bookingId: 'booking-1', generation: 2, offer: { type: 'offer', sdp: 'old-generation' } });
+    await gateway.offer(replacementMentor as never, { bookingId: 'booking-1', generation: 3, offer: { type: 'offer', sdp: 'current' } });
+
+    expect(originalMentor.emit).toHaveBeenCalledWith('video:error', expect.objectContaining({ code: 'VIDEO_CALL_FORBIDDEN' }));
+    expect(replacementMentor.emit).toHaveBeenCalledWith('video:error', expect.objectContaining({ code: 'VIDEO_SIGNAL_STALE' }));
+    expect(emitted).toContainEqual({ target: 'student-socket', event: 'video:offer', payload: { bookingId: 'booking-1', generation: 3, offer: { type: 'offer', sdp: 'current' } } });
   });
 });

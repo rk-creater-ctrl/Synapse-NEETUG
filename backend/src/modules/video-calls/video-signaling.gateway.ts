@@ -14,11 +14,12 @@ type JoinedCall = {
   videoSessionId: string;
   role: VideoCallParticipantRole;
   scheduledEndAt: Date;
+  generation: number;
 };
 type VideoSocket = Socket & { data: { identity?: SocketIdentity; joinedCall?: JoinedCall } };
-type CallMembers = { mentor?: string; student?: string };
+type CallMembers = { mentor?: string; student?: string; generation?: number };
 type JoinPayload = { bookingId: string };
-type SignalPayload = { bookingId: string; offer?: unknown; answer?: unknown; candidate?: unknown };
+type SignalPayload = { bookingId: string; generation: number; offer?: unknown; answer?: unknown; candidate?: unknown };
 
 const MAX_SIGNAL_BYTES = 64 * 1024;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
@@ -78,16 +79,19 @@ export class VideoSignalingGateway implements OnModuleDestroy {
       const key = bootstrap.participantRole === 'MENTOR' ? 'mentor' : 'student';
       const oppositeKey = key === 'mentor' ? 'student' : 'mentor';
       const previousId = current[key];
-      if (previousId && previousId !== socket.id) this.server.sockets.sockets.get(previousId)?.disconnect(true);
       current[key] = socket.id;
+      current.generation = (current.generation ?? 0) + 1;
       this.members.set(bootstrap.videoSessionId, current);
       const joinedCall: JoinedCall = {
         bookingId: bootstrap.bookingId,
         videoSessionId: bootstrap.videoSessionId,
         role: bootstrap.participantRole,
         scheduledEndAt: bootstrap.scheduledEndAt,
+        generation: current.generation,
       };
       socket.data.joinedCall = joinedCall;
+      this.updateCurrentGeneration(bootstrap.videoSessionId, current);
+      if (previousId && previousId !== socket.id) this.server.sockets.sockets.get(previousId)?.disconnect(true);
       await socket.join(this.roomName(bootstrap.videoSessionId));
       if (this.hasReachedEnd(joinedCall)) {
         await this.expireSession(joinedCall);
@@ -106,28 +110,37 @@ export class VideoSignalingGateway implements OnModuleDestroy {
           return this.applicationError(socket, error);
         }
       }
-      socket.emit('video:joined', { bookingId: bootstrap.bookingId, videoSessionId: bootstrap.videoSessionId, participantRole: bootstrap.participantRole, accessExpiresAt: bootstrap.accessExpiresAt });
+      socket.emit('video:joined', {
+        bookingId: bootstrap.bookingId,
+        videoSessionId: bootstrap.videoSessionId,
+        participantRole: bootstrap.participantRole,
+        accessExpiresAt: bootstrap.accessExpiresAt,
+        generation: joinedCall.generation,
+      });
       if (oppositeId) {
-        this.server.to(oppositeId).emit('video:peer-joined', { participantRole: bootstrap.participantRole });
-        socket.emit('video:peer-joined', { participantRole: oppositeKey === 'mentor' ? 'MENTOR' : 'STUDENT' });
+        this.server.to(oppositeId).emit('video:peer-joined', { bookingId: bootstrap.bookingId, participantRole: bootstrap.participantRole, generation: joinedCall.generation });
+        socket.emit('video:peer-joined', { bookingId: bootstrap.bookingId, participantRole: oppositeKey === 'mentor' ? 'MENTOR' : 'STUDENT', generation: joinedCall.generation });
       }
     } catch (error) { this.applicationError(socket, error); }
   }
 
   @SubscribeMessage('video:offer')
   async offer(@ConnectedSocket() socket: VideoSocket, @MessageBody() payload: unknown) {
+    if (!await this.authorizeSignal(socket, payload)) return;
     if (!this.isSignalPayload(payload, 'offer')) return this.error(socket, 'VIDEO_SIGNAL_INVALID', 'Invalid video offer.');
     await this.relay(socket, payload, 'video:offer', payload.offer);
   }
 
   @SubscribeMessage('video:answer')
   async answer(@ConnectedSocket() socket: VideoSocket, @MessageBody() payload: unknown) {
+    if (!await this.authorizeSignal(socket, payload)) return;
     if (!this.isSignalPayload(payload, 'answer')) return this.error(socket, 'VIDEO_SIGNAL_INVALID', 'Invalid video answer.');
     await this.relay(socket, payload, 'video:answer', payload.answer);
   }
 
   @SubscribeMessage('video:ice-candidate')
   async iceCandidate(@ConnectedSocket() socket: VideoSocket, @MessageBody() payload: unknown) {
+    if (!await this.authorizeSignal(socket, payload)) return;
     if (!this.isSignalPayload(payload, 'candidate')) return this.error(socket, 'VIDEO_SIGNAL_INVALID', 'Invalid ICE candidate.');
     await this.relay(socket, payload, 'video:ice-candidate', payload.candidate);
   }
@@ -144,16 +157,37 @@ export class VideoSignalingGateway implements OnModuleDestroy {
   }
 
   private async relay(socket: VideoSocket, payload: SignalPayload, event: string, signal: unknown) {
-    const joined = socket.data.joinedCall;
-    if (!joined || joined.bookingId !== payload.bookingId) return this.error(socket, 'VIDEO_CALL_FORBIDDEN', 'Video access is not authorized.');
-    if (this.hasReachedEnd(joined)) {
-      await this.expireSession(joined);
-      return this.error(socket, 'VIDEO_CALL_ENDED', 'Video access has ended for this booking.');
-    }
+    const joined = await this.authorizeSignal(socket, payload);
+    if (!joined) return;
     const members = this.members.get(joined.videoSessionId);
     const oppositeId = joined.role === 'MENTOR' ? members?.student : members?.mentor;
     const signalKey = event === 'video:offer' ? 'offer' : event === 'video:answer' ? 'answer' : 'candidate';
-    if (oppositeId) this.server.to(oppositeId).emit(event, { bookingId: joined.bookingId, [signalKey]: signal });
+    if (oppositeId) this.server.to(oppositeId).emit(event, { bookingId: joined.bookingId, generation: joined.generation, [signalKey]: signal });
+  }
+
+  private async authorizeSignal(socket: VideoSocket, payload: unknown): Promise<JoinedCall | null> {
+    const joined = socket.data.joinedCall;
+    if (!joined || !this.isJoinPayload(payload) || joined.bookingId !== payload.bookingId) {
+      this.error(socket, 'VIDEO_CALL_FORBIDDEN', 'Video access is not authorized.');
+      return null;
+    }
+    const members = this.members.get(joined.videoSessionId);
+    const ownSocketId = joined.role === 'MENTOR' ? members?.mentor : members?.student;
+    if (ownSocketId !== socket.id) {
+      this.error(socket, 'VIDEO_CALL_FORBIDDEN', 'Video access is not authorized.');
+      return null;
+    }
+    const generation = (payload as { generation?: unknown }).generation;
+    if (generation !== joined.generation || members?.generation !== joined.generation) {
+      this.error(socket, 'VIDEO_SIGNAL_STALE', 'Video signaling is no longer current.');
+      return null;
+    }
+    if (this.hasReachedEnd(joined)) {
+      await this.expireSession(joined);
+      this.error(socket, 'VIDEO_CALL_ENDED', 'Video access has ended for this booking.');
+      return null;
+    }
+    return joined;
   }
 
   private removeMembership(socket: VideoSocket, notifyPeer: boolean) {
@@ -165,7 +199,7 @@ export class VideoSignalingGateway implements OnModuleDestroy {
       const wasCurrentMember = members[key] === socket.id;
       if (wasCurrentMember) delete members[key];
       const oppositeId = joined.role === 'MENTOR' ? members.student : members.mentor;
-      if (notifyPeer && wasCurrentMember && oppositeId) this.server.to(oppositeId).emit('video:peer-left', { participantRole: joined.role });
+      if (notifyPeer && wasCurrentMember && oppositeId) this.server.to(oppositeId).emit('video:peer-left', { bookingId: joined.bookingId, participantRole: joined.role, generation: joined.generation });
       if (!members.mentor && !members.student) this.members.delete(joined.videoSessionId);
     }
     socket.data.joinedCall = undefined;
@@ -183,6 +217,7 @@ export class VideoSignalingGateway implements OnModuleDestroy {
       videoSessionId: bootstrap.videoSessionId,
       role: bootstrap.participantRole,
       scheduledEndAt: bootstrap.scheduledEndAt,
+      generation: 0,
     };
     if (this.hasReachedEnd(joined)) {
       await this.expireSession(joined);
@@ -246,9 +281,22 @@ export class VideoSignalingGateway implements OnModuleDestroy {
 
   private isSignalPayload(value: unknown, field: 'offer' | 'answer' | 'candidate'): value is SignalPayload {
     if (!this.isJoinPayload(value)) return false;
+    const generation = (value as { generation?: unknown }).generation;
+    if (typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 1) return false;
     const signal = (value as SignalPayload)[field];
     if (typeof signal !== 'object' || signal === null) return false;
     try { return JSON.stringify(signal).length <= MAX_SIGNAL_BYTES; } catch { return false; }
+  }
+
+  private updateCurrentGeneration(videoSessionId: string, members: CallMembers) {
+    const generation = members.generation;
+    if (!generation) return;
+    for (const socketId of [members.mentor, members.student]) {
+      if (typeof socketId !== 'string') continue;
+      const currentSocket = this.server.sockets.sockets.get(socketId) as VideoSocket | undefined;
+      const joined = currentSocket?.data.joinedCall;
+      if (joined && joined.videoSessionId === videoSessionId) joined.generation = generation;
+    }
   }
 
   private accessToken(socket: Socket): string | null {

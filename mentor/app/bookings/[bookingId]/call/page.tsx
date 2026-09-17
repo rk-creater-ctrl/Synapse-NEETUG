@@ -17,8 +17,10 @@ import {
   mentorSignalingUrl,
 } from '../../../../lib/mentor-webrtc';
 
-type CallState = 'authorizing' | 'requesting-media' | 'connecting' | 'waiting' | 'connected' | 'ended' | 'error';
-type SignalMessage = { bookingId: string; offer?: RTCSessionDescriptionInit; answer?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
+type CallState = 'authorizing' | 'requesting-media' | 'connecting' | 'waiting' | 'connected' | 'reconnecting' | 'ended' | 'error';
+type SignalMessage = { bookingId: string; generation?: number; offer?: RTCSessionDescriptionInit; answer?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
+const MAX_PEER_RECOVERY_ATTEMPTS = 3;
+const DISCONNECTED_GRACE_MS = 4_000;
 
 export default function MentorBookingCallPage() {
   const { status } = useMentorAuth();
@@ -35,6 +37,11 @@ export default function MentorBookingCallPage() {
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const makingOfferRef = useRef(false);
   const sessionEndedRef = useRef(false);
+  const explicitLeaveRef = useRef(false);
+  const generationRef = useRef<number | null>(null);
+  const recoveryAttemptsRef = useRef(0);
+  const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recoveringRef = useRef(false);
   const [callState, setCallState] = useState<CallState>('authorizing');
   const [error, setError] = useState<string | null>(null);
   const [hasLocalMedia, setHasLocalMedia] = useState(false);
@@ -44,6 +51,9 @@ export default function MentorBookingCallPage() {
   const [attempt, setAttempt] = useState(0);
 
   const releaseResources = useCallback((notifyPeer: boolean) => {
+    if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
+    recoveryTimerRef.current = null;
+    recoveringRef.current = false;
     const socket = socketRef.current;
     const bootstrap = bootstrapRef.current;
     if (notifyPeer && socket?.connected && joinedRef.current && bootstrap) {
@@ -60,6 +70,7 @@ export default function MentorBookingCallPage() {
     remoteStreamRef.current = null;
     pendingCandidatesRef.current = [];
     makingOfferRef.current = false;
+    generationRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     setHasLocalMedia(false);
@@ -67,6 +78,7 @@ export default function MentorBookingCallPage() {
   }, []);
 
   const leaveCall = useCallback(() => {
+    explicitLeaveRef.current = true;
     releaseResources(true);
     router.replace('/bookings');
   }, [releaseResources, router]);
@@ -100,7 +112,8 @@ export default function MentorBookingCallPage() {
       try {
         const offer = await peer.createOffer();
         await peer.setLocalDescription(offer);
-        socket.emit('video:offer', { bookingId: bootstrap.bookingId, offer });
+        if (generationRef.current === null) return;
+        socket.emit('video:offer', { bookingId: bootstrap.bookingId, generation: generationRef.current, offer });
       } catch {
         fail('Unable to negotiate the peer-to-peer connection.');
       } finally {
@@ -112,6 +125,8 @@ export default function MentorBookingCallPage() {
       const session = getMentorSession();
       if (!session) return;
       sessionEndedRef.current = false;
+      explicitLeaveRef.current = false;
+      recoveryAttemptsRef.current = 0;
       setCallState('authorizing');
       setError(null);
       try {
@@ -140,72 +155,124 @@ export default function MentorBookingCallPage() {
         if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
         setHasLocalMedia(true);
 
-        const peer = new RTCPeerConnection(mentorPeerConfiguration());
-        peerRef.current = peer;
-        const remoteStream = new MediaStream();
-        remoteStreamRef.current = remoteStream;
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
-        localStream.getTracks().forEach((track) => peer.addTrack(track, localStream));
-        peer.ontrack = (event) => {
+        const createPeer = () => {
+          peerRef.current?.close();
+          pendingCandidatesRef.current = [];
+          setHasRemoteMedia(false);
+          const peer = new RTCPeerConnection(mentorPeerConfiguration());
+          peerRef.current = peer;
+          const remoteStream = new MediaStream();
+          remoteStreamRef.current = remoteStream;
+          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
+          localStream.getTracks().forEach((track) => peer.addTrack(track, localStream));
+          peer.ontrack = (event) => {
           event.streams[0]?.getTracks().forEach((track) => {
             if (!remoteStream.getTracks().some((existing) => existing.id === track.id)) remoteStream.addTrack(track);
           });
           setHasRemoteMedia(remoteStream.getTracks().length > 0);
-        };
-        peer.onicecandidate = (event) => {
-          if (event.candidate && socketRef.current?.connected) {
-            socketRef.current.emit('video:ice-candidate', { bookingId: bootstrap.bookingId, candidate: event.candidate.toJSON() });
-          }
-        };
-        peer.onconnectionstatechange = () => {
+          };
+          peer.onicecandidate = (event) => {
+            if (event.candidate && socketRef.current?.connected && generationRef.current !== null) {
+              socketRef.current.emit('video:ice-candidate', { bookingId: bootstrap.bookingId, generation: generationRef.current, candidate: event.candidate.toJSON() });
+            }
+          };
+          peer.onconnectionstatechange = () => {
           if (sessionEndedRef.current) return;
           if (peer.connectionState === 'connected') setCallState('connected');
-          if (peer.connectionState === 'failed') fail('Unable to connect to the peer-to-peer call.');
+            if (peer.connectionState === 'disconnected' && !recoveryTimerRef.current) {
+              recoveryTimerRef.current = setTimeout(() => recover(), DISCONNECTED_GRACE_MS);
+            }
+            if (peer.connectionState === 'failed') void recover();
+          };
+          return peer;
         };
+
+        const recover = async () => {
+          if (disposed || sessionEndedRef.current || explicitLeaveRef.current || recoveringRef.current) return;
+          if (recoveryAttemptsRef.current >= MAX_PEER_RECOVERY_ATTEMPTS) {
+            fail('Connection lost. Please retry the call.');
+            return;
+          }
+          recoveringRef.current = true;
+          recoveryTimerRef.current = null;
+          recoveryAttemptsRef.current += 1;
+          joinedRef.current = false;
+          setCallState('reconnecting');
+          createPeer();
+          if (socketRef.current?.connected) socketRef.current.emit('video:join', { bookingId: bootstrap.bookingId });
+          else socketRef.current?.connect();
+          recoveringRef.current = false;
+        };
+
+        createPeer();
 
         setCallState('connecting');
         const socket = io(mentorSignalingUrl(process.env.NEXT_PUBLIC_API_URL), {
           auth: { token: session.accessToken },
           transports: ['websocket'],
           autoConnect: false,
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 500,
+          reconnectionDelayMax: 4_000,
         });
         bootstrapRef.current = bootstrap;
         socketRef.current = socket;
-        socket.on('connect', () => socket.emit('video:join', { bookingId: bootstrap.bookingId }));
-        socket.on('connect_error', () => fail('Unable to connect to the signaling service.'));
-        socket.on('video:joined', () => {
+        socket.on('connect', () => {
+          if (!sessionEndedRef.current && !explicitLeaveRef.current) socket.emit('video:join', { bookingId: bootstrap.bookingId });
+        });
+        socket.on('disconnect', () => {
+          if (!sessionEndedRef.current && !explicitLeaveRef.current) void recover();
+        });
+        socket.on('connect_error', () => {
+          if (recoveryAttemptsRef.current >= MAX_PEER_RECOVERY_ATTEMPTS) fail('Unable to connect to the signaling service.');
+        });
+        socket.on('video:joined', (message: SignalMessage) => {
           if (sessionEndedRef.current) return;
+          if (message.bookingId !== bootstrap.bookingId || typeof message.generation !== 'number') return;
+          generationRef.current = message.generation;
           joinedRef.current = true;
+          recoveryAttemptsRef.current = 0;
           setCallState('waiting');
         });
-        socket.on('video:peer-joined', () => { void negotiateOffer(bootstrap); });
+        socket.on('video:peer-joined', (message: SignalMessage) => {
+          if (message.bookingId !== bootstrap.bookingId || typeof message.generation !== 'number') return;
+          const changed = generationRef.current !== message.generation;
+          generationRef.current = message.generation;
+          if (changed) createPeer();
+          void negotiateOffer(bootstrap);
+        });
         socket.on('video:offer', async (message: SignalMessage) => {
-          if (message.bookingId !== bootstrap.bookingId || !message.offer || !peerRef.current) return;
+          if (message.bookingId !== bootstrap.bookingId || message.generation !== generationRef.current || !message.offer || !peerRef.current) return;
           try {
             await peerRef.current.setRemoteDescription(message.offer);
             for (const candidate of pendingCandidatesRef.current.splice(0)) await peerRef.current.addIceCandidate(candidate);
             const answer = await peerRef.current.createAnswer();
             await peerRef.current.setLocalDescription(answer);
-            socket.emit('video:answer', { bookingId: bootstrap.bookingId, answer });
+            socket.emit('video:answer', { bookingId: bootstrap.bookingId, generation: generationRef.current, answer });
           } catch { fail('Unable to negotiate the peer-to-peer connection.'); }
         });
         socket.on('video:answer', async (message: SignalMessage) => {
-          if (message.bookingId !== bootstrap.bookingId || !message.answer || !peerRef.current) return;
+          if (message.bookingId !== bootstrap.bookingId || message.generation !== generationRef.current || !message.answer || !peerRef.current) return;
           try {
             await peerRef.current.setRemoteDescription(message.answer);
             for (const candidate of pendingCandidatesRef.current.splice(0)) await peerRef.current.addIceCandidate(candidate);
           } catch { fail('Unable to finalize the peer-to-peer connection.'); }
         });
         socket.on('video:ice-candidate', async (message: SignalMessage) => {
-          if (message.bookingId !== bootstrap.bookingId || !message.candidate || !peerRef.current) return;
+          if (message.bookingId !== bootstrap.bookingId || message.generation !== generationRef.current || !message.candidate || !peerRef.current) return;
           try {
             if (peerRef.current.remoteDescription) await peerRef.current.addIceCandidate(message.candidate);
             else pendingCandidatesRef.current.push(message.candidate);
           } catch { fail('Unable to process a peer connection update.'); }
         });
-        socket.on('video:peer-left', () => {
+        socket.on('video:peer-left', (message: SignalMessage) => {
           if (sessionEndedRef.current) return;
-          remoteStream.getTracks().forEach((track) => remoteStream.removeTrack(track));
+          if (message.bookingId !== bootstrap.bookingId || (typeof message.generation === 'number' && message.generation !== generationRef.current)) return;
+          const remoteStream = remoteStreamRef.current;
+          if (remoteStream) {
+            remoteStream.getTracks().forEach((track) => remoteStream.removeTrack(track));
+          }
           setHasRemoteMedia(false);
           setCallState('waiting');
         });
@@ -252,6 +319,7 @@ export default function MentorBookingCallPage() {
       callState === 'connecting' ? 'Connecting…' :
       callState === 'waiting' ? 'Waiting for student…' :
       callState === 'connected' ? 'Connected' :
+      callState === 'reconnecting' ? 'Reconnecting…' :
       callState === 'ended' ? 'Session ended' : 'Unable to connect'
     }</p>
     <div className="webrtc-remote-surface" style={{ minHeight: 360, background: '#172033' }}>
