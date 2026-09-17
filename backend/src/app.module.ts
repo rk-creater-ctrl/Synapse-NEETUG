@@ -19,6 +19,7 @@ import { StudyLeaderboardModule } from './modules/study-leaderboard/study-leader
 import { AssessmentsModule } from './modules/assessments/assessments.module';
 import { MentorsModule } from './modules/mentors/mentors.module';
 import { VideoCallsModule } from './modules/video-calls/video-calls.module';
+import { CommunityModule } from './modules/community/community.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { VideoCallsModule } from './modules/video-calls/video-calls.module';
     StudyLeaderboardModule,
     MentorsModule,
     VideoCallsModule,
+    CommunityModule,
   ],
   controllers: [HealthController],
   providers: [

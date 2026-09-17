@@ -144,6 +144,23 @@ enum MentorVideoSessionStatus {
   ENDED
 }
 
+enum CommunityType {
+  GROUP
+  CHANNEL
+}
+
+enum CommunityVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum CommunityMemberRole {
+  OWNER
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
 model User {
   testAttempts          TestAttempt[]
   id                String              @id @default(cuid())
@@ -166,6 +183,9 @@ model User {
   studySessions    StudySession[]
   mentorProfile    MentorProfile?
   mentorBookings   MentorBooking[]
+  communitiesCreated Community[]          @relation("CommunityCreator")
+  communityMemberships CommunityMembership[]
+  communityMessages CommunityMessage[]
 }
 
 model Role {
@@ -802,6 +822,59 @@ model MentorSubjectExpertise {
 
   @@id([mentorProfileId, subjectId])
   @@index([subjectId])
+}
+
+model Community {
+  id              String              @id @default(cuid())
+  name            String
+  description     String?
+  type            CommunityType
+  visibility      CommunityVisibility
+  createdByUserId String
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  createdBy       User                @relation("CommunityCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  memberships     CommunityMembership[]
+  messages        CommunityMessage[]
+
+  @@index([createdByUserId, createdAt])
+  @@index([visibility, type, createdAt])
+}
+
+model CommunityMembership {
+  id          String              @id @default(cuid())
+  communityId String
+  userId      String
+  role        CommunityMemberRole @default(MEMBER)
+  mutedUntil  DateTime?
+  bannedAt    DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  community   Community           @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, userId])
+  @@index([userId, communityId])
+  @@index([communityId, role])
+}
+
+model CommunityMessage {
+  id               String            @id @default(cuid())
+  communityId      String
+  authorUserId     String
+  content          String
+  replyToMessageId String?
+  deletedAt        DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  community        Community         @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  author           User              @relation(fields: [authorUserId], references: [id], onDelete: Restrict)
+  replyTo          CommunityMessage? @relation("CommunityMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies          CommunityMessage[] @relation("CommunityMessageReplies")
+
+  @@index([communityId, createdAt, id])
+  @@index([replyToMessageId, createdAt, id])
+  @@index([authorUserId, createdAt])
 }
 
 model ContentImportJob {
