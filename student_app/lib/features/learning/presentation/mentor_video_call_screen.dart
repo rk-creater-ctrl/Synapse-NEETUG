@@ -38,8 +38,13 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
   bool _sessionEnded = false;
   bool _explicitLeave = false;
   bool _recovering = false;
+  bool _peerPresent = false;
   int _recoveryAttempts = 0;
   int? _generation;
+  int? _peerGeneration;
+  int? _rebuildingGeneration;
+  Future<void>? _peerRebuild;
+  Map<String, dynamic>? _pendingOffer;
   String _state = 'Authorizing session…';
   String? _error;
 
@@ -55,6 +60,11 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
     _sessionEnded = false;
     _explicitLeave = false;
     _recoveryAttempts = 0;
+    _peerPresent = false;
+    _peerGeneration = null;
+    _rebuildingGeneration = null;
+    _peerRebuild = null;
+    _pendingOffer = null;
     setState(() { _state = 'Authorizing session…'; _error = null; });
     try {
       final api = ref.read(learningApiProvider);
@@ -67,7 +77,12 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
       try {
         _localStream = await navigator.mediaDevices.getUserMedia({
           'audio': true,
-          'video': {'facingMode': 'user'},
+          'video': {
+            'facingMode': 'user',
+            'width': {'ideal': 640},
+            'height': {'ideal': 480},
+            'frameRate': {'ideal': 20, 'max': 24},
+          },
         });
       } catch (_) {
         throw const _CallException('Camera and microphone permission is required.');
@@ -75,37 +90,7 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
       if (_localRendererInitialized) {
         _localRenderer.srcObject = _localStream;
       }
-      _peer = await createPeerConnection(_peerConfiguration());
-      for (final track in _localStream!.getTracks()) {
-        await _peer!.addTrack(track, _localStream!);
-      }
-      _peer!.onTrack = (event) {
-        if (_sessionEnded) return;
-        if (event.streams.isNotEmpty) {
-          if (_remoteRendererInitialized) {
-            _remoteRenderer.srcObject = event.streams.first;
-          }
-          if (mounted) setState(() { _hasRemoteMedia = true; _state = 'Connected'; });
-        }
-      };
-      _peer!.onIceCandidate = (candidate) {
-        if (candidate.candidate != null && _socket?.connected == true && _generation != null) {
-          _socket!.emit('video:ice-candidate', {'bookingId': bootstrap.bookingId, 'generation': _generation, 'candidate': candidate.toMap()});
-        }
-      };
-      _peer!.onConnectionState = (state) {
-        if (!mounted || _sessionEnded || _explicitLeave) return;
-        if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-          _disconnectGraceTimer?.cancel();
-          _disconnectGraceTimer = null;
-          _recoveryAttempts = 0;
-          setState(() => _state = 'Connected');
-        }
-        if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-          _disconnectGraceTimer ??= Timer(const Duration(seconds: 4), () => unawaited(_recover(bootstrap)));
-        }
-        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) unawaited(_recover(bootstrap));
-      };
+      await _rebuildPeer(bootstrap);
       if (!mounted) return;
       setState(() => _state = 'Connecting…');
       final baseUrl = api.dio.options.baseUrl;
@@ -141,9 +126,13 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
 
   void _registerSocketListeners(io.Socket socket, MentorVideoAccess bootstrap) {
     socket.onConnect((_) {
-      if (!_sessionEnded && !_explicitLeave) socket.emit('video:join', {'bookingId': bootstrap.bookingId});
+      if (!_sessionEnded && !_explicitLeave) {
+        socket.emit('video:join', {'bookingId': bootstrap.bookingId});
+      }
     });
-    socket.onDisconnect((_) => unawaited(_recover(bootstrap)));
+    socket.onDisconnect((_) {
+      unawaited(_recover(bootstrap, rebuildPeer: false));
+    });
     socket.onConnectError((_) {
       if (_recoveryAttempts >= 3) _fail('Unable to connect to the signaling service.');
     });
@@ -152,6 +141,7 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
       final generation = message['generation'];
       if (_sessionEnded || message['bookingId']?.toString() != bootstrap.bookingId || generation is! int) return;
       _generation = generation;
+      _peerGeneration ??= generation;
       _joined = true;
       _recoveryAttempts = 0;
       if (mounted) setState(() => _state = 'Waiting for mentor…');
@@ -160,20 +150,22 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
       final message = _map(payload);
       final generation = message['generation'];
       if (_sessionEnded || message['bookingId']?.toString() != bootstrap.bookingId || generation is! int) return;
-      if (_generation != generation) await _rebuildPeer(bootstrap);
+      if (_generation != null && generation < _generation!) return;
+      _peerPresent = true;
       _generation = generation;
+      await _rebuildForGeneration(bootstrap, generation);
     });
     socket.on('video:offer', (dynamic payload) async {
       final message = _map(payload);
       final offer = _map(message['offer']);
-      if (message['bookingId']?.toString() != bootstrap.bookingId || message['generation'] != _generation || offer.isEmpty || _peer == null) return;
-      try {
-        await _peer!.setRemoteDescription(RTCSessionDescription(offer['sdp']?.toString(), offer['type']?.toString()));
-        await _flushCandidates();
-        final answer = await _peer!.createAnswer();
-        await _peer!.setLocalDescription(answer);
-        socket.emit('video:answer', {'bookingId': bootstrap.bookingId, 'generation': _generation, 'answer': answer.toMap()});
-      } catch (_) { _fail('Unable to negotiate the peer-to-peer connection.'); }
+      final generation = message['generation'];
+      if (message['bookingId']?.toString() != bootstrap.bookingId || generation is! int || generation != _generation || offer.isEmpty || _sessionEnded || !_peerPresent) return;
+      _peerPresent = true;
+      if (_peerGeneration != generation || _rebuildingGeneration == generation) {
+        _pendingOffer = offer;
+        return;
+      }
+      await _processOffer(socket, bootstrap, generation, offer);
     });
     socket.on('video:answer', (dynamic payload) async {
       final message = _map(payload);
@@ -187,7 +179,12 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
     socket.on('video:ice-candidate', (dynamic payload) async {
       final message = _map(payload);
       final candidate = _map(message['candidate']);
-      if (message['bookingId']?.toString() != bootstrap.bookingId || message['generation'] != _generation || candidate.isEmpty || _peer == null) return;
+      final generation = message['generation'];
+      if (message['bookingId']?.toString() != bootstrap.bookingId || generation is! int || generation != _generation || candidate.isEmpty) return;
+      if (_peerGeneration != generation || _rebuildingGeneration == generation || _peer == null) {
+        _pendingCandidates.add(candidate);
+        return;
+      }
       if (await _peer!.getRemoteDescription() == null) {
         _pendingCandidates.add(candidate);
         return;
@@ -198,6 +195,8 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
       final message = _map(payload);
       if (message['bookingId']?.toString() != bootstrap.bookingId || (message['generation'] is int && message['generation'] != _generation)) return;
       if (_sessionEnded) return;
+      _peerPresent = false;
+      _pendingOffer = null;
       if (_remoteRendererInitialized) {
         _remoteRenderer.srcObject = null;
       }
@@ -209,16 +208,32 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
         unawaited(_endSession());
       }
     });
-    socket.on('video:error', (dynamic payload) => _fail(_signalingErrorMessage(_map(payload)['code'])));
+    socket.on('video:error', (dynamic payload) {
+      final message = _map(payload);
+      final code = message['code']?.toString();
+      if (code == 'VIDEO_SIGNAL_STALE' || code == 'VIDEO_SIGNAL_INVALID') {
+        if (_peerPresent) unawaited(_recover(bootstrap));
+        return;
+      }
+      if (code == 'VIDEO_CALL_ENDED') {
+        unawaited(_endSession());
+        return;
+      }
+      _fail(_signalingErrorMessage(code));
+    });
   }
 
   Future<void> _rebuildPeer(MentorVideoAccess bootstrap) async {
-    await _peer?.close();
+    final previousPeer = _peer;
+    _peer = null;
+    await previousPeer?.close();
     _pendingCandidates.clear();
     if (_remoteRendererInitialized) _remoteRenderer.srcObject = null;
     if (mounted) setState(() => _hasRemoteMedia = false);
     final stream = _localStream;
-    if (stream == null) throw const _CallException('Camera and microphone are unavailable.');
+    if (stream == null || stream.getTracks().isEmpty) {
+      throw const _CallException('Camera and microphone are unavailable.');
+    }
     final peer = await createPeerConnection(_peerConfiguration());
     _peer = peer;
     for (final track in stream.getTracks()) {
@@ -230,27 +245,72 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
       if (mounted) setState(() { _hasRemoteMedia = true; _state = 'Connected'; });
     };
     peer.onIceCandidate = (candidate) {
-      if (candidate.candidate != null && _socket?.connected == true && _generation != null) {
+      if (candidate.candidate != null && _peerPresent && _socket?.connected == true && _generation != null) {
         _socket!.emit('video:ice-candidate', {'bookingId': bootstrap.bookingId, 'generation': _generation, 'candidate': candidate.toMap()});
       }
     };
     peer.onConnectionState = (state) {
-      if (!mounted || _sessionEnded || _explicitLeave) return;
+      if (!mounted || _sessionEnded || _explicitLeave || !identical(_peer, peer)) return;
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         _disconnectGraceTimer?.cancel();
         _disconnectGraceTimer = null;
         _recoveryAttempts = 0;
         setState(() => _state = 'Connected');
-      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+      } else if (_peerPresent && state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
         _disconnectGraceTimer ??= Timer(const Duration(seconds: 4), () => unawaited(_recover(bootstrap)));
-      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+      } else if (_peerPresent && state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
         unawaited(_recover(bootstrap));
       }
     };
   }
 
-  Future<void> _recover(MentorVideoAccess bootstrap) async {
+  Future<void> _rebuildForGeneration(MentorVideoAccess bootstrap, int generation) async {
+    if (_peerGeneration == generation && _rebuildingGeneration == null) return;
+    if (_rebuildingGeneration == generation && _peerRebuild != null) {
+      await _peerRebuild;
+      return;
+    }
+    _peerGeneration = null;
+    _rebuildingGeneration = generation;
+    final rebuild = _rebuildPeer(bootstrap);
+    _peerRebuild = rebuild;
+    try {
+      await rebuild;
+      if (_sessionEnded || _generation != generation) return;
+      _peerGeneration = generation;
+      final pendingOffer = _pendingOffer;
+      _pendingOffer = null;
+      if (_peerPresent && pendingOffer != null) {
+        final socket = _socket;
+        if (socket != null) await _processOffer(socket, bootstrap, generation, pendingOffer);
+      }
+    } finally {
+      if (_rebuildingGeneration == generation) {
+        _rebuildingGeneration = null;
+        _peerRebuild = null;
+      }
+    }
+  }
+
+  Future<void> _processOffer(io.Socket socket, MentorVideoAccess bootstrap, int generation, Map<String, dynamic> offer) async {
+    final peer = _peer;
+    if (_sessionEnded || !_peerPresent || _generation != generation || _peerGeneration != generation || peer == null) return;
+    try {
+      await peer.setRemoteDescription(RTCSessionDescription(offer['sdp']?.toString(), offer['type']?.toString()));
+      await _flushCandidates();
+      final answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      if (!_sessionEnded && _generation == generation && _peerGeneration == generation && socket.connected) {
+        socket.emit('video:answer', {'bookingId': bootstrap.bookingId, 'generation': generation, 'answer': answer.toMap()});
+      }
+    } catch (_) {
+      _fail('Unable to negotiate the peer-to-peer connection.');
+    }
+  }
+
+  Future<void> _recover(MentorVideoAccess bootstrap, {bool rebuildPeer = true}) async {
     if (_sessionEnded || _explicitLeave || _recovering) return;
+    if (rebuildPeer && !_peerPresent) return;
     if (_recoveryAttempts >= 3) {
       _fail('Connection lost. Please retry the call.');
       return;
@@ -262,7 +322,8 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
     _joined = false;
     if (mounted) setState(() => _state = 'Reconnectingâ€¦');
     try {
-      await _rebuildPeer(bootstrap);
+      if (rebuildPeer) await _rebuildPeer(bootstrap);
+      if (rebuildPeer) _peerGeneration = _generation;
       if (_socket?.connected == true) {
         _socket!.emit('video:join', {'bookingId': bootstrap.bookingId});
       } else {
@@ -322,6 +383,7 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
 
   void _fail(String message) {
     if (_sessionEnded) return;
+    _explicitLeave = true;
     unawaited(_release(notifyPeer: true, disposeRenderers: false));
     if (mounted) setState(() { _state = 'Unable to connect'; _error = message; });
   }
@@ -362,8 +424,13 @@ class _MentorVideoCallScreenState extends ConsumerState<MentorVideoCallScreen> {
       _remoteRenderer.srcObject = null;
     }
     _pendingCandidates.clear();
+    _pendingOffer = null;
     _generation = null;
+    _peerGeneration = null;
+    _rebuildingGeneration = null;
+    _peerRebuild = null;
     _recovering = false;
+    _peerPresent = false;
     _hasRemoteMedia = false;
     if (disposeRenderers && _localRendererInitialized) {
       await _localRenderer.dispose();

@@ -6,6 +6,7 @@ import { VideoSignalingGateway } from './video-signaling.gateway';
 describe('VideoSignalingGateway', () => {
   const scheduledEndAt = new Date('2030-01-01T00:15:00.000Z');
   let gateway: VideoSignalingGateway;
+  let jwt: { verifyAsync: jest.Mock };
   let access: { forSocket: jest.Mock };
   let lifecycle: { activate: jest.Mock; end: jest.Mock };
   let emitted: Array<{ target: string; event: string; payload: unknown }>;
@@ -13,7 +14,7 @@ describe('VideoSignalingGateway', () => {
   const socket = (id: string, identity?: { id: string; roles: RoleName[] }) => ({
     id,
     data: { identity },
-    handshake: { auth: {}, headers: {} },
+    handshake: { auth: {} as { token?: string }, headers: {} },
     emit: jest.fn(), join: jest.fn().mockResolvedValue(undefined), leave: jest.fn(), disconnect: jest.fn(),
   });
 
@@ -23,8 +24,9 @@ describe('VideoSignalingGateway', () => {
       activate: jest.fn().mockResolvedValue(undefined),
       end: jest.fn().mockResolvedValue(undefined),
     };
+    jwt = { verifyAsync: jest.fn() };
     emitted = [];
-    gateway = new VideoSignalingGateway({ verifyAsync: jest.fn() } as never, { getOrThrow: jest.fn().mockReturnValue('secret') } as never, access as never, lifecycle as never);
+    gateway = new VideoSignalingGateway(jwt as never, { getOrThrow: jest.fn().mockReturnValue('secret') } as never, access as never, lifecycle as never);
     gateway.server = {
       sockets: { sockets: new Map() },
       to: (target: string) => ({ emit: (event: string, payload: unknown) => emitted.push({ target, event, payload }) }),
@@ -40,6 +42,49 @@ describe('VideoSignalingGateway', () => {
     const client = socket('socket-1');
     await gateway.handleConnection(client as never);
     expect(client.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it('waits for student socket authentication before establishing initial booking presence', async () => {
+    jwt.verifyAsync.mockResolvedValue({ sub: 'student-user', roles: [RoleName.STUDENT] });
+    access.forSocket.mockResolvedValue({
+      bookingId: 'booking-1',
+      videoSessionId: 'video-1',
+      participantRole: 'STUDENT',
+      scheduledEndAt,
+      accessExpiresAt: scheduledEndAt,
+    });
+    const student = socket('student-socket');
+    student.handshake.auth.token = 'student-access-token';
+    (gateway.server.sockets.sockets as Map<string, unknown>).set(student.id, student);
+
+    gateway.handleConnection(student as never);
+    await gateway.join(student as never, { bookingId: 'booking-1' });
+
+    expect(access.forSocket).toHaveBeenCalledWith('student-user', [RoleName.STUDENT], 'booking-1');
+    expect(student.emit).toHaveBeenCalledWith('video:joined', expect.objectContaining({ bookingId: 'booking-1', participantRole: 'STUDENT' }));
+    expect(student.emit).not.toHaveBeenCalledWith('video:error', expect.objectContaining({ code: 'VIDEO_CALL_FORBIDDEN' }));
+  });
+
+  it('establishes initial presence when a namespaced gateway exposes its socket map directly', async () => {
+    access.forSocket.mockResolvedValue({
+      bookingId: 'booking-1',
+      videoSessionId: 'video-1',
+      participantRole: 'STUDENT',
+      scheduledEndAt,
+      accessExpiresAt: scheduledEndAt,
+    });
+    const runtimeSockets = new Map<string, unknown>();
+    gateway.server = {
+      sockets: runtimeSockets,
+      to: (target: string) => ({ emit: (event: string, payload: unknown) => emitted.push({ target, event, payload }) }),
+    } as never;
+    const student = socket('student-socket', { id: 'student-user', roles: [RoleName.STUDENT] });
+    runtimeSockets.set(student.id, student);
+
+    await gateway.join(student as never, { bookingId: 'booking-1' });
+
+    expect(student.emit).toHaveBeenCalledWith('video:joined', expect.objectContaining({ bookingId: 'booking-1', participantRole: 'STUDENT' }));
+    expect(student.emit).not.toHaveBeenCalledWith('video:error', expect.objectContaining({ code: 'VIDEO_CALL_FORBIDDEN' }));
   });
 
   it('authorizes one mentor and one student, then relays offers only to the opposite peer', async () => {

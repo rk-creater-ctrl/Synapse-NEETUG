@@ -16,7 +16,7 @@ type JoinedCall = {
   scheduledEndAt: Date;
   generation: number;
 };
-type VideoSocket = Socket & { data: { identity?: SocketIdentity; joinedCall?: JoinedCall } };
+type VideoSocket = Socket & { data: { identity?: SocketIdentity; authentication?: Promise<void>; joinedCall?: JoinedCall } };
 type CallMembers = { mentor?: string; student?: string; generation?: number };
 type JoinPayload = { bookingId: string };
 type SignalPayload = { bookingId: string; generation: number; offer?: unknown; answer?: unknown; candidate?: unknown };
@@ -40,12 +40,22 @@ export class VideoSignalingGateway implements OnModuleDestroy {
     private readonly lifecycle: MentorVideoSessionLifecycleService,
   ) {}
 
-  async handleConnection(socket: VideoSocket) {
+  handleConnection(socket: VideoSocket) {
     const token = this.accessToken(socket);
-    if (!token) return socket.disconnect(true);
+    if (!token) {
+      socket.disconnect(true);
+      return;
+    }
+    socket.data.authentication = this.authenticate(socket, token);
+  }
+
+  private async authenticate(socket: VideoSocket, token: string): Promise<void> {
     try {
       const payload = await this.jwt.verifyAsync<{ sub?: string; roles?: RoleName[] }>(token, { secret: this.config.getOrThrow('JWT_ACCESS_SECRET') });
-      if (!payload.sub || !Array.isArray(payload.roles)) return socket.disconnect(true);
+      if (!payload.sub || !Array.isArray(payload.roles)) {
+        socket.disconnect(true);
+        return;
+      }
       socket.data.identity = { id: payload.sub, roles: payload.roles };
     } catch { socket.disconnect(true); }
   }
@@ -67,8 +77,11 @@ export class VideoSignalingGateway implements OnModuleDestroy {
 
   @SubscribeMessage('video:join')
   async join(@ConnectedSocket() socket: VideoSocket, @MessageBody() payload: unknown) {
+    await socket.data.authentication;
     const identity = socket.data.identity;
-    if (!identity || !this.isJoinPayload(payload)) return this.error(socket, 'VIDEO_CALL_FORBIDDEN', 'Video access is not authorized.');
+    if (!identity || !this.isJoinPayload(payload)) {
+      return this.error(socket, 'VIDEO_CALL_FORBIDDEN', 'Video access is not authorized.');
+    }
     try {
       const bootstrap = await this.access.forSocket(identity.id, identity.roles, payload.bookingId);
       if (!await this.ensureExpiry(bootstrap)) {
@@ -91,7 +104,7 @@ export class VideoSignalingGateway implements OnModuleDestroy {
       };
       socket.data.joinedCall = joinedCall;
       this.updateCurrentGeneration(bootstrap.videoSessionId, current);
-      if (previousId && previousId !== socket.id) this.server.sockets.sockets.get(previousId)?.disconnect(true);
+      if (previousId && previousId !== socket.id) this.socketById(previousId)?.disconnect(true);
       await socket.join(this.roomName(bootstrap.videoSessionId));
       if (this.hasReachedEnd(joinedCall)) {
         await this.expireSession(joinedCall);
@@ -121,7 +134,9 @@ export class VideoSignalingGateway implements OnModuleDestroy {
         this.server.to(oppositeId).emit('video:peer-joined', { bookingId: bootstrap.bookingId, participantRole: bootstrap.participantRole, generation: joinedCall.generation });
         socket.emit('video:peer-joined', { bookingId: bootstrap.bookingId, participantRole: oppositeKey === 'mentor' ? 'MENTOR' : 'STUDENT', generation: joinedCall.generation });
       }
-    } catch (error) { this.applicationError(socket, error); }
+    } catch (error) {
+      this.applicationError(socket, error);
+    }
   }
 
   @SubscribeMessage('video:offer')
@@ -259,7 +274,7 @@ export class VideoSignalingGateway implements OnModuleDestroy {
         });
       }
       for (const socketId of socketIds) {
-        const socket = this.server.sockets.sockets.get(socketId) as VideoSocket | undefined;
+        const socket = this.socketById(socketId);
         if (socket) {
           this.removeMembership(socket, false);
           socket.disconnect(true);
@@ -293,10 +308,24 @@ export class VideoSignalingGateway implements OnModuleDestroy {
     if (!generation) return;
     for (const socketId of [members.mentor, members.student]) {
       if (typeof socketId !== 'string') continue;
-      const currentSocket = this.server.sockets.sockets.get(socketId) as VideoSocket | undefined;
+      const currentSocket = this.socketById(socketId);
       const joined = currentSocket?.data.joinedCall;
       if (joined && joined.videoSessionId === videoSessionId) joined.generation = generation;
     }
+  }
+
+  private socketById(socketId: string): VideoSocket | undefined {
+    const namespaceOrRegistry = this.server.sockets as unknown;
+    if (namespaceOrRegistry instanceof Map) {
+      return namespaceOrRegistry.get(socketId) as VideoSocket | undefined;
+    }
+    if (typeof namespaceOrRegistry === 'object' && namespaceOrRegistry !== null) {
+      const registry = (namespaceOrRegistry as { sockets?: unknown }).sockets;
+      if (registry instanceof Map) {
+        return registry.get(socketId) as VideoSocket | undefined;
+      }
+    }
+    return undefined;
   }
 
   private accessToken(socket: Socket): string | null {
@@ -318,4 +347,5 @@ export class VideoSignalingGateway implements OnModuleDestroy {
     }
     this.error(socket, 'VIDEO_CALL_FORBIDDEN', 'Video access is not authorized.');
   }
+
 }

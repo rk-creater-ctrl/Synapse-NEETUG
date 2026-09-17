@@ -140,7 +140,15 @@ export default function MentorBookingCallPage() {
         }
         let localStream: MediaStream;
         try {
-          localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          localStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: {
+              facingMode: { ideal: 'user' },
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              frameRate: { ideal: 20, max: 24 },
+            },
+          });
         } catch (caught) {
           fail(mentorMediaErrorMessage(caught));
           return;
