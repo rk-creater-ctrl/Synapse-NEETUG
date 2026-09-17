@@ -1,8 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
-import { AddCommunityMemberDto, CreateCommunityDto, UpdateCommunityMemberRoleDto } from './community.dto';
+import {
+  AddCommunityMemberDto,
+  CommunityMessageHistoryQueryDto,
+  CreateCommunityDto,
+  CreateCommunityMessageDto,
+  UpdateCommunityMemberRoleDto,
+} from './community.dto';
+import { CommunityMessagesService } from './community-messages.service';
 import { CommunityService } from './community.service';
 
 type AuthenticatedRequest = { user: { id: string } };
@@ -12,7 +19,10 @@ type AuthenticatedRequest = { user: { id: string } };
 @Controller('communities')
 @UseGuards(JwtAuthGuard)
 export class CommunityController {
-  constructor(private readonly communities: CommunityService) {}
+  constructor(
+    private readonly communities: CommunityService,
+    private readonly messages: CommunityMessagesService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a community with the authenticated creator as owner' })
@@ -79,6 +89,26 @@ export class CommunityController {
     @Param('userId') userId: string,
   ) {
     return this.communities.removeMember(request.user.id, communityId, userId);
+  }
+
+  @Post(':communityId/messages')
+  @ApiOperation({ summary: 'Create a text message as an authorized community member' })
+  createMessage(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Body() dto: CreateCommunityMessageDto,
+  ) {
+    return this.messages.create(request.user.id, communityId, dto);
+  }
+
+  @Get(':communityId/messages')
+  @ApiOperation({ summary: 'Read community message history with chronological cursor pages' })
+  listMessages(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Query() query: CommunityMessageHistoryQueryDto,
+  ) {
+    return this.messages.list(request.user.id, communityId, query);
   }
 
   @Get(':communityId')
