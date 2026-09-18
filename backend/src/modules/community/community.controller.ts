@@ -6,6 +6,9 @@ import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
 import {
   AddCommunityMemberDto,
   BanCommunityMemberDto,
+  CommunityModerationActionsQueryDto,
+  CommunityModerationMembersQueryDto,
+  CommunityModerationReportsQueryDto,
   CommunityMessageHistoryQueryDto,
   CreateCommunityMessageReportDto,
   CreateCommunityDto,
@@ -148,6 +151,56 @@ export class CommunityController {
     @Body() dto: CreateCommunityMessageReportDto,
   ) {
     return this.moderation.reportMessage(request.user.id, communityId, messageId, dto);
+  }
+
+  @Get(':communityId/moderation/reports')
+  @ApiOperation({ summary: 'List reports for an authorized community moderator' })
+  listModerationReports(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Query() query: CommunityModerationReportsQueryDto,
+  ) {
+    return this.moderation.listReports(request.user.id, communityId, query);
+  }
+
+  @Put(':communityId/moderation/reports/:reportId/resolve')
+  @ApiOperation({ summary: 'Resolve an open community report' })
+  resolveModerationReport(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Param('reportId') reportId: string,
+  ) {
+    return this.moderation.resolveReport(request.user.id, communityId, reportId);
+  }
+
+  @Put(':communityId/moderation/reports/:reportId/dismiss')
+  @ApiOperation({ summary: 'Dismiss an open community report' })
+  dismissModerationReport(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Param('reportId') reportId: string,
+  ) {
+    return this.moderation.dismissReport(request.user.id, communityId, reportId);
+  }
+
+  @Get(':communityId/moderation/actions')
+  @ApiOperation({ summary: 'List moderation actions for an authorized community moderator' })
+  listModerationActions(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Query() query: CommunityModerationActionsQueryDto,
+  ) {
+    return this.moderation.listActions(request.user.id, communityId, query);
+  }
+
+  @Get(':communityId/moderation/members')
+  @ApiOperation({ summary: 'List moderation-relevant community memberships' })
+  listModerationMembers(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Query() query: CommunityModerationMembersQueryDto,
+  ) {
+    return this.moderation.listModerationMembers(request.user.id, communityId, query);
   }
 
   @Delete(':communityId/messages/:messageId')

@@ -1,7 +1,9 @@
 import {
   CommunityMemberRole,
+  CommunityModerationActionType,
   CommunityReactionType,
   CommunityReportReason,
+  CommunityReportStatus,
   CommunityType,
   CommunityVisibility,
 } from '@prisma/client';
@@ -99,6 +101,65 @@ export class BanCommunityMemberDto {
   @IsString()
   @MaxLength(1000)
   reason?: string;
+}
+
+export class CommunityModerationReportsQueryDto {
+  @IsOptional()
+  @IsEnum(CommunityReportStatus)
+  status?: CommunityReportStatus = CommunityReportStatus.OPEN;
+
+  @IsOptional()
+  @IsEnum(CommunityReportReason)
+  reason?: CommunityReportReason;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 191)
+  cursor?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 50;
+}
+
+export class CommunityModerationActionsQueryDto {
+  @IsOptional()
+  @IsEnum(CommunityModerationActionType)
+  action?: CommunityModerationActionType;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 191)
+  targetUserId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 191)
+  cursor?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 50;
+}
+
+export class CommunityModerationMembersQueryDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 191)
+  cursor?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 50;
 }
 
 export class CommunityMessageHistoryQueryDto {

@@ -24,6 +24,7 @@ export default function DashboardPage() {
         <li><Link href="/learning/tests">Formal tests</Link></li>
         <li><Link href="/media-assets">Media assets</Link></li>
         <li><Link href="/content-imports">Bulk content import</Link></li>
+        <li><Link href="/communities">Community management</Link></li>
       </ul>
     </div>
   );

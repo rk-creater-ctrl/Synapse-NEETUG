@@ -38,6 +38,8 @@ describe('CommunityController', () => {
     const reactions = { toggle: jest.fn().mockResolvedValue({ messageId: 'message-1', communityId: 'community-1', reactions: [], myReaction: null }) };
     const moderation = {
       reportMessage: jest.fn(), deleteMessage: jest.fn(), muteMember: jest.fn(), unmuteMember: jest.fn(), banMember: jest.fn(), unbanMember: jest.fn(),
+      listReports: jest.fn().mockResolvedValue({ items: [], nextCursor: null }), resolveReport: jest.fn(), dismissReport: jest.fn(),
+      listActions: jest.fn().mockResolvedValue({ items: [], nextCursor: null }), listModerationMembers: jest.fn().mockResolvedValue({ items: [], nextCursor: null }),
     };
     const gateway = { broadcastMessage: jest.fn(), broadcastReaction: jest.fn() };
     const controller = new CommunityController(communities as never, messages as never, reactions as never, moderation as never, gateway as never);
@@ -58,6 +60,11 @@ describe('CommunityController', () => {
     await controller.createMessage(request, 'community-1', { content: 'Hello community' });
     await controller.setMessageReaction(request, 'community-1', 'message-1', { type: CommunityReactionType.LIKE });
     await controller.listMessages(request, 'community-1', { limit: 20 });
+    await controller.listModerationReports(request, 'community-1', {});
+    await controller.resolveModerationReport(request, 'community-1', 'report-1');
+    await controller.dismissModerationReport(request, 'community-1', 'report-1');
+    await controller.listModerationActions(request, 'community-1', {});
+    await controller.listModerationMembers(request, 'community-1', {});
     await controller.get(request, 'community-1');
 
     expect(communities.create).toHaveBeenCalledWith('user-authenticated', dto);
@@ -74,6 +81,11 @@ describe('CommunityController', () => {
     expect(reactions.toggle).toHaveBeenCalledWith('user-authenticated', 'community-1', 'message-1', CommunityReactionType.LIKE);
     expect(gateway.broadcastReaction).toHaveBeenCalledWith({ messageId: 'message-1', communityId: 'community-1', reactions: [], myReaction: null });
     expect(messages.list).toHaveBeenCalledWith('user-authenticated', 'community-1', { limit: 20 });
+    expect(moderation.listReports).toHaveBeenCalledWith('user-authenticated', 'community-1', {});
+    expect(moderation.resolveReport).toHaveBeenCalledWith('user-authenticated', 'community-1', 'report-1');
+    expect(moderation.dismissReport).toHaveBeenCalledWith('user-authenticated', 'community-1', 'report-1');
+    expect(moderation.listActions).toHaveBeenCalledWith('user-authenticated', 'community-1', {});
+    expect(moderation.listModerationMembers).toHaveBeenCalledWith('user-authenticated', 'community-1', {});
     expect(communities.getForUser).toHaveBeenCalledWith('user-authenticated', 'community-1');
   });
 

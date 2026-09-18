@@ -90,7 +90,7 @@ export function adminGet<T>(path: string, query?: QueryParams) {
 
 export function adminMutation<T>(
   path: string,
-  method: 'POST' | 'PATCH',
+  method: 'POST' | 'PATCH' | 'PUT' | 'DELETE',
   body: unknown,
 ) {
   return adminApi<T>(path, {

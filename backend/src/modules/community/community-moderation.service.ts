@@ -3,12 +3,16 @@ import {
   CommunityMemberRole,
   CommunityModerationActionType,
   CommunityReportReason,
+  CommunityReportStatus,
   Prisma,
 } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
 import {
   BanCommunityMemberDto,
+  CommunityModerationActionsQueryDto,
+  CommunityModerationMembersQueryDto,
+  CommunityModerationReportsQueryDto,
   CreateCommunityMessageReportDto,
   ModerateCommunityMessageDto,
   MuteCommunityMemberDto,
@@ -23,6 +27,17 @@ type ModerationMember = {
   mutedUntil: Date | null;
   bannedAt: Date | null;
 };
+
+type TerminalCommunityReportStatus = Extract<
+  CommunityReportStatus,
+  'RESOLVED' | 'DISMISSED'
+>;
+
+const safeUserSelect = {
+  id: true,
+  studentProfile: { select: { fullName: true } },
+  mentorProfile: { select: { fullName: true } },
+} as const;
 
 @Injectable()
 export class CommunityModerationService {
@@ -63,6 +78,162 @@ export class CommunityModerationService {
         message: 'This message has already been reported by the authenticated user.',
       });
     }
+  }
+
+  async listReports(
+    actorUserId: string,
+    communityId: string,
+    query: CommunityModerationReportsQueryDto,
+  ) {
+    await this.requireModerator(actorUserId, communityId);
+    const limit = this.pageLimit(query.limit);
+    const status = query.status ?? CommunityReportStatus.OPEN;
+    const cursor = query.cursor
+      ? await this.db.communityMessageReport.findFirst({
+        where: { id: query.cursor, communityId, status, ...(query.reason ? { reason: query.reason } : {}) },
+        select: { id: true, createdAt: true },
+      })
+      : null;
+    if (query.cursor && !cursor) this.invalidCursor();
+
+    const reports = await this.db.communityMessageReport.findMany({
+      where: {
+        communityId,
+        status,
+        ...(query.reason ? { reason: query.reason } : {}),
+        ...(cursor ? {
+          OR: [
+            { createdAt: { lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+          ],
+        } : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      select: {
+        id: true, reason: true, details: true, status: true, createdAt: true, resolvedAt: true,
+        reporter: { select: safeUserSelect },
+        message: {
+          select: {
+            id: true, content: true, deletedAt: true, createdAt: true,
+            author: { select: safeUserSelect },
+            attachments: { select: { id: true } },
+          },
+        },
+      },
+    });
+    const hasNextPage = reports.length > limit;
+    const items = reports.slice(0, limit).map((report) => ({
+      id: report.id,
+      reason: report.reason,
+      details: report.details,
+      status: report.status,
+      createdAt: report.createdAt,
+      resolvedAt: report.resolvedAt,
+      reporter: this.toSafeUser(report.reporter),
+      message: {
+        id: report.message.id,
+        content: report.message.deletedAt ? null : report.message.content,
+        isDeleted: Boolean(report.message.deletedAt),
+        createdAt: report.message.createdAt,
+        author: this.toSafeUser(report.message.author),
+        attachmentCount: report.message.deletedAt ? 0 : report.message.attachments.length,
+      },
+    }));
+    return { items, nextCursor: hasNextPage ? items.at(-1)?.id ?? null : null };
+  }
+
+  async resolveReport(actorUserId: string, communityId: string, reportId: string, now = new Date()) {
+    return this.setReportStatus(actorUserId, communityId, reportId, CommunityReportStatus.RESOLVED, now);
+  }
+
+  async dismissReport(actorUserId: string, communityId: string, reportId: string, now = new Date()) {
+    return this.setReportStatus(actorUserId, communityId, reportId, CommunityReportStatus.DISMISSED, now);
+  }
+
+  async listActions(
+    actorUserId: string,
+    communityId: string,
+    query: CommunityModerationActionsQueryDto,
+  ) {
+    await this.requireModerator(actorUserId, communityId);
+    const limit = this.pageLimit(query.limit);
+    const filters = {
+      communityId,
+      ...(query.action ? { action: query.action } : {}),
+      ...(query.targetUserId ? { targetUserId: query.targetUserId } : {}),
+    };
+    const cursor = query.cursor
+      ? await this.db.communityModerationAction.findFirst({
+        where: { id: query.cursor, ...filters }, select: { id: true, createdAt: true },
+      })
+      : null;
+    if (query.cursor && !cursor) this.invalidCursor();
+    const actions = await this.db.communityModerationAction.findMany({
+      where: {
+        ...filters,
+        ...(cursor ? {
+          OR: [
+            { createdAt: { lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+          ],
+        } : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      select: {
+        id: true, action: true, reason: true, createdAt: true, targetMessageId: true,
+        actor: { select: safeUserSelect },
+        targetUser: { select: safeUserSelect },
+      },
+    });
+    const hasNextPage = actions.length > limit;
+    const items = actions.slice(0, limit).map((action) => ({
+      id: action.id, action: action.action, reason: action.reason, createdAt: action.createdAt,
+      targetMessageId: action.targetMessageId,
+      actor: this.toSafeUser(action.actor),
+      ...(action.targetUser ? { targetUser: this.toSafeUser(action.targetUser) } : {}),
+    }));
+    return { items, nextCursor: hasNextPage ? items.at(-1)?.id ?? null : null };
+  }
+
+  async listModerationMembers(
+    actorUserId: string,
+    communityId: string,
+    query: CommunityModerationMembersQueryDto,
+  ) {
+    await this.requireModerator(actorUserId, communityId);
+    const limit = this.pageLimit(query.limit);
+    const cursor = query.cursor
+      ? await this.db.communityMembership.findFirst({
+        where: { id: query.cursor, communityId }, select: { id: true, createdAt: true },
+      })
+      : null;
+    if (query.cursor && !cursor) this.invalidCursor();
+    const memberships = await this.db.communityMembership.findMany({
+      where: {
+        communityId,
+        ...(cursor ? {
+          OR: [
+            { createdAt: { lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+          ],
+        } : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      select: { id: true, userId: true, role: true, mutedUntil: true, bannedAt: true, createdAt: true, user: { select: safeUserSelect } },
+    });
+    const hasNextPage = memberships.length > limit;
+    const items = memberships.slice(0, limit).map((membership) => ({
+      userId: membership.userId,
+      displayName: this.toSafeUser(membership.user).displayName,
+      role: membership.role,
+      mutedUntil: membership.mutedUntil,
+      bannedAt: membership.bannedAt,
+      joinedAt: membership.createdAt,
+    }));
+    return { items, nextCursor: hasNextPage ? memberships[limit - 1]?.id ?? null : null };
   }
 
   async deleteMessage(
@@ -182,6 +353,30 @@ export class CommunityModerationService {
     return { communityId, userId: targetUserId, action: 'UNBANNED' as const, changed: true };
   }
 
+  private async setReportStatus(
+    actorUserId: string,
+    communityId: string,
+    reportId: string,
+    status: TerminalCommunityReportStatus,
+    now: Date,
+  ) {
+    await this.requireModerator(actorUserId, communityId);
+    const report = await this.db.communityMessageReport.findFirst({
+      where: { id: reportId, communityId },
+      select: { id: true, status: true, resolvedAt: true },
+    });
+    if (!report) this.reportNotFound();
+    if (report.status !== CommunityReportStatus.OPEN) {
+      return { id: report.id, status: report.status, resolvedAt: report.resolvedAt, changed: false };
+    }
+    const updated = await this.db.communityMessageReport.update({
+      where: { id: report.id },
+      data: { status, resolvedAt: now, resolvedByUserId: actorUserId },
+      select: { id: true, status: true, resolvedAt: true },
+    });
+    return { ...updated, changed: true };
+  }
+
   private async requireModerator(userId: string, communityId: string): Promise<ModerationMember> {
     const membership = await this.findMembership(communityId, userId);
     if (!membership || membership.bannedAt) this.communityNotFound();
@@ -244,6 +439,23 @@ export class CommunityModerationService {
     return normalized || null;
   }
 
+  private pageLimit(value?: number) {
+    const limit = value ?? 50;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) this.invalidCursor();
+    return limit;
+  }
+
+  private toSafeUser(user: {
+    id: string;
+    studentProfile: { fullName: string } | null;
+    mentorProfile: { fullName: string } | null;
+  }) {
+    return {
+      id: user.id,
+      displayName: user.studentProfile?.fullName ?? user.mentorProfile?.fullName ?? 'User',
+    };
+  }
+
   private boundedMuteDuration(value: number) {
     if (!Number.isInteger(value) || value < 1 || value > 10_080) {
       throw new BadRequestException({
@@ -260,6 +472,14 @@ export class CommunityModerationService {
 
   private reportTargetNotFound(): never {
     throw new NotFoundException({ code: 'COMMUNITY_REPORT_TARGET_NOT_FOUND', message: 'Community message not found.' });
+  }
+
+  private reportNotFound(): never {
+    throw new NotFoundException({ code: 'COMMUNITY_REPORT_NOT_FOUND', message: 'Community report not found.' });
+  }
+
+  private invalidCursor(): never {
+    throw new BadRequestException({ code: 'COMMUNITY_MODERATION_CURSOR_INVALID', message: 'Moderation cursor or page size is invalid.' });
   }
 
   private communityNotFound(): never {
