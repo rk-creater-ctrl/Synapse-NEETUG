@@ -26,6 +26,7 @@ describe('CommunityGateway', () => {
     content: 'Hello community',
     isDeleted: false,
     replyToMessageId: null,
+    attachments: [],
     createdAt,
     updatedAt: createdAt,
     author: { id: 'student-1', displayName: 'Asha Student' },
@@ -196,6 +197,22 @@ describe('CommunityGateway', () => {
 
     expect(client.join).not.toHaveBeenCalled();
     expect(broadcasts).toEqual([{ room: 'community:community-1', event: 'community:message:new', payload: message }]);
+  });
+
+  it('broadcasts a persisted attachment-message DTO unchanged without sending file bytes', () => {
+    const message = persistedMessage({
+      id: 'message-attachment-1',
+      content: null,
+      attachments: [{
+        id: 'attachment-1', type: 'DOCUMENT', fileName: 'notes.pdf', mimeType: 'application/pdf',
+        sizeBytes: 128, accessUrl: '/api/v1/communities/attachments/attachment-1',
+      }],
+    });
+
+    gateway.broadcastMessage(message as never);
+
+    expect(broadcasts).toEqual([{ room: 'community:community-1', event: 'community:message:new', payload: message }]);
+    expect(JSON.stringify(broadcasts)).not.toContain('%PDF-');
   });
 
   it('validates malformed payloads without calling community services', async () => {

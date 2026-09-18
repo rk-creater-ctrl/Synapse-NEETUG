@@ -93,11 +93,15 @@ export class CommunityGateway {
 
     try {
       const message = await this.messages.create(identity.id, payload.communityId, { content: payload.content });
-      this.server.to(this.roomName(payload.communityId)).emit('community:message:new', message);
+      this.broadcastMessage(message);
       return { ok: true, data: message };
     } catch (error) {
       return this.applicationError(error);
     }
+  }
+
+  broadcastMessage(message: Awaited<ReturnType<CommunityMessagesService['create']>>) {
+    this.server.to(this.roomName(message.communityId)).emit('community:message:new', message);
   }
 
   private async authenticate(socket: CommunitySocket, token: string): Promise<void> {

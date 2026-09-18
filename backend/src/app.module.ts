@@ -34,6 +34,7 @@ import { CommunityModule } from './modules/community/community.module';
         JWT_REFRESH_EXPIRES_IN: Joi.string().default('30d'),
         PORT: Joi.number().default(3000),
         CORS_ORIGINS: Joi.string().allow(''),
+        COMMUNITY_ATTACHMENT_STORAGE_DIR: Joi.string().min(1).optional(),
       }),
     }),
     // Global safety net; sensitive auth routes use stricter per-route limits.

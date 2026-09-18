@@ -1,6 +1,6 @@
 import { CommunityMemberRole, CommunityType, CommunityVisibility } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 
 export class CreateCommunityDto {
   @IsString()
@@ -34,6 +34,13 @@ export class CreateCommunityMessageDto {
   @IsString()
   @Length(1, 4000)
   content!: string;
+}
+
+export class CreateCommunityMessageWithAttachmentsDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  content?: string;
 }
 
 export class CommunityMessageHistoryQueryDto {

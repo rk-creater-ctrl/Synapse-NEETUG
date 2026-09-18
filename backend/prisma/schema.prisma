@@ -161,6 +161,11 @@ enum CommunityMemberRole {
   MEMBER
 }
 
+enum CommunityAttachmentType {
+  IMAGE
+  DOCUMENT
+}
+
 model User {
   testAttempts          TestAttempt[]
   id                String              @id @default(cuid())
@@ -862,7 +867,7 @@ model CommunityMessage {
   id               String            @id @default(cuid())
   communityId      String
   authorUserId     String
-  content          String
+  content          String?
   replyToMessageId String?
   deletedAt        DateTime?
   createdAt        DateTime          @default(now())
@@ -871,10 +876,27 @@ model CommunityMessage {
   author           User              @relation(fields: [authorUserId], references: [id], onDelete: Restrict)
   replyTo          CommunityMessage? @relation("CommunityMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
   replies          CommunityMessage[] @relation("CommunityMessageReplies")
+  attachments      CommunityMessageAttachment[]
 
   @@index([communityId, createdAt, id])
   @@index([replyToMessageId, createdAt, id])
   @@index([authorUserId, createdAt])
+}
+
+model CommunityMessageAttachment {
+  id               String                  @id @default(cuid())
+  messageId        String
+  type             CommunityAttachmentType
+  storageKey       String                  @unique
+  originalFileName String
+  mimeType         String
+  sizeBytes        Int
+  position         Int
+  createdAt        DateTime                @default(now())
+  message          CommunityMessage        @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, position])
+  @@index([messageId, position])
 }
 
 model ContentImportJob {

@@ -1,9 +1,17 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../core/database/prisma.service';
+import {
+  CommunityAttachmentStorageService,
+  UploadedCommunityAttachment,
+} from './community-attachment-storage.service';
 import { canCommunityMemberPublish } from './community-policy';
-import { CommunityMessageHistoryQueryDto, CreateCommunityMessageDto } from './community.dto';
+import {
+  CommunityMessageHistoryQueryDto,
+  CreateCommunityMessageDto,
+  CreateCommunityMessageWithAttachmentsDto,
+} from './community.dto';
 import { CommunityService } from './community.service';
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 50;
@@ -16,6 +24,16 @@ const messageSelect = {
   deletedAt: true,
   createdAt: true,
   updatedAt: true,
+  attachments: {
+    orderBy: { position: 'asc' },
+    select: {
+      id: true,
+      type: true,
+      originalFileName: true,
+      mimeType: true,
+      sizeBytes: true,
+    },
+  },
   author: {
     select: {
       id: true,
@@ -32,10 +50,83 @@ export class CommunityMessagesService {
   constructor(
     private readonly db: PrismaService,
     private readonly communities: CommunityService,
+    private readonly storage: CommunityAttachmentStorageService,
   ) {}
 
   async create(userId: string, communityId: string, dto: CreateCommunityMessageDto, now = new Date()) {
-    const content = this.requiredContent(dto.content);
+    const content = this.normalizedContent(dto.content);
+    if (!content) this.messageRequired();
+    await this.assertMayPublish(userId, communityId, now);
+
+    const message = await this.db.communityMessage.create({
+      data: { communityId, authorUserId: userId, content },
+      select: messageSelect,
+    });
+    return this.toResponse(message);
+  }
+
+  async createWithAttachments(
+    userId: string,
+    communityId: string,
+    dto: CreateCommunityMessageWithAttachmentsDto,
+    files: UploadedCommunityAttachment[] | undefined,
+    now = new Date(),
+  ) {
+    const content = this.normalizedContent(dto.content);
+    if (!content && (!files || files.length === 0)) this.messageRequired();
+    await this.assertMayPublish(userId, communityId, now);
+    const preparedAttachments = this.storage.prepare(files);
+    if (!content && preparedAttachments.length === 0) this.messageRequired();
+
+    const storedAttachments = await this.storage.store(preparedAttachments);
+    try {
+      const message = await this.db.$transaction((tx) =>
+        tx.communityMessage.create({
+          data: {
+            communityId,
+            authorUserId: userId,
+            content,
+            attachments: {
+              create: storedAttachments.map((attachment, position) => ({ ...attachment, position })),
+            },
+          },
+          select: messageSelect,
+        }),
+      );
+      return this.toResponse(message);
+    } catch (error) {
+      await this.storage.remove(storedAttachments.map((attachment) => attachment.storageKey));
+      throw error;
+    }
+  }
+
+  async readAttachmentForUser(userId: string, attachmentId: string) {
+    const attachment = await this.db.communityMessageAttachment.findFirst({
+      where: { id: attachmentId, message: { deletedAt: null } },
+      select: {
+        mimeType: true,
+        originalFileName: true,
+        storageKey: true,
+        type: true,
+        message: { select: { communityId: true } },
+      },
+    });
+    if (!attachment) this.attachmentNotFound();
+
+    await this.communities.getForUser(userId, attachment.message.communityId);
+    try {
+      return {
+        buffer: await this.storage.read(attachment.storageKey),
+        mimeType: attachment.mimeType,
+        fileName: attachment.originalFileName,
+        inline: attachment.type === 'IMAGE',
+      };
+    } catch {
+      this.attachmentNotFound();
+    }
+  }
+
+  private async assertMayPublish(userId: string, communityId: string, now: Date) {
     const membership = await this.db.communityMembership.findUnique({
       where: { communityId_userId: { communityId, userId } },
       select: {
@@ -46,21 +137,15 @@ export class CommunityMessagesService {
       },
     });
     if (!membership || membership.bannedAt) this.publishForbidden();
-    if (membership!.mutedUntil && membership!.mutedUntil.getTime() > now.getTime()) {
+    if (membership.mutedUntil && membership.mutedUntil.getTime() > now.getTime()) {
       throw new ForbiddenException({
         code: 'COMMUNITY_MEMBERSHIP_MUTED',
         message: 'This community membership is currently muted.',
       });
     }
-    if (!canCommunityMemberPublish(membership!.community.type, membership!.role)) {
+    if (!canCommunityMemberPublish(membership.community.type, membership.role)) {
       this.publishForbidden();
     }
-
-    const message = await this.db.communityMessage.create({
-      data: { communityId, authorUserId: userId, content },
-      select: messageSelect,
-    });
-    return this.toResponse(message);
   }
 
   async list(userId: string, communityId: string, query: CommunityMessageHistoryQueryDto = new CommunityMessageHistoryQueryDto()) {
@@ -106,6 +191,16 @@ export class CommunityMessagesService {
       replyToMessageId: message.replyToMessageId,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
+      attachments: isDeleted
+        ? []
+        : message.attachments.map((attachment) => ({
+          id: attachment.id,
+          type: attachment.type,
+          fileName: attachment.originalFileName,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          accessUrl: `/api/v1/communities/attachments/${attachment.id}`,
+        })),
       author: {
         id: message.author.id,
         displayName: message.author.studentProfile?.fullName
@@ -115,15 +210,33 @@ export class CommunityMessagesService {
     };
   }
 
-  private requiredContent(value: string) {
+  private normalizedContent(value: string | undefined): string | null {
+    if (value === undefined) return null;
+    if (typeof value !== 'string') this.messageContentInvalid();
     const content = value.trim();
-    if (!content || content.length > 4000) {
-      throw new BadRequestException({
-        code: 'COMMUNITY_MESSAGE_CONTENT_INVALID',
-        message: 'Message content must be between 1 and 4000 characters.',
-      });
-    }
-    return content;
+    if (content.length > 4000) this.messageContentInvalid();
+    return content || null;
+  }
+
+  private messageRequired(): never {
+    throw new BadRequestException({
+      code: 'COMMUNITY_MESSAGE_CONTENT_INVALID',
+      message: 'A message must contain text or at least one attachment.',
+    });
+  }
+
+  private messageContentInvalid(): never {
+    throw new BadRequestException({
+      code: 'COMMUNITY_MESSAGE_CONTENT_INVALID',
+      message: 'Message content must be between 1 and 4000 characters.',
+    });
+  }
+
+  private attachmentNotFound(): never {
+    throw new NotFoundException({
+      code: 'COMMUNITY_ATTACHMENT_NOT_FOUND',
+      message: 'Community attachment not found.',
+    });
   }
 
   private publishForbidden(): never {

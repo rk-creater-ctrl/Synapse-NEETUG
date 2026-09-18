@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
 import {
@@ -7,12 +7,17 @@ import {
   CommunityMessageHistoryQueryDto,
   CreateCommunityDto,
   CreateCommunityMessageDto,
+  CreateCommunityMessageWithAttachmentsDto,
   UpdateCommunityMemberRoleDto,
 } from './community.dto';
+import { CommunityGateway } from './community.gateway';
+import { CommunityMessageAttachmentsInterceptor } from './community-message-attachments.interceptor';
 import { CommunityMessagesService } from './community-messages.service';
 import { CommunityService } from './community.service';
 
 type AuthenticatedRequest = { user: { id: string } };
+type UploadedAttachment = { originalname: string; mimetype: string; size: number; buffer: Buffer };
+type BinaryResponse = { setHeader(name: string, value: string): void; send(body: Buffer): void };
 
 @ApiTags('communities')
 @ApiBearerAuth()
@@ -22,6 +27,7 @@ export class CommunityController {
   constructor(
     private readonly communities: CommunityService,
     private readonly messages: CommunityMessagesService,
+    private readonly gateway: CommunityGateway,
   ) {}
 
   @Post()
@@ -101,6 +107,21 @@ export class CommunityController {
     return this.messages.create(request.user.id, communityId, dto);
   }
 
+  @Post(':communityId/messages/attachments')
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Create a text and/or attachment community message as an authorized member' })
+  @UseInterceptors(CommunityMessageAttachmentsInterceptor)
+  async createMessageWithAttachments(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Body() dto: CreateCommunityMessageWithAttachmentsDto,
+    @UploadedFiles() files?: UploadedAttachment[],
+  ) {
+    const message = await this.messages.createWithAttachments(request.user.id, communityId, dto, files);
+    this.gateway.broadcastMessage(message);
+    return message;
+  }
+
   @Get(':communityId/messages')
   @ApiOperation({ summary: 'Read community message history with chronological cursor pages' })
   listMessages(
@@ -109,6 +130,24 @@ export class CommunityController {
     @Query() query: CommunityMessageHistoryQueryDto,
   ) {
     return this.messages.list(request.user.id, communityId, query);
+  }
+
+  @Get('attachments/:attachmentId')
+  @ApiOperation({ summary: 'Read an authorized community message attachment' })
+  async readAttachment(
+    @Req() request: AuthenticatedRequest,
+    @Param('attachmentId') attachmentId: string,
+    @Res({ passthrough: true }) response: BinaryResponse,
+  ) {
+    const attachment = await this.messages.readAttachmentForUser(request.user.id, attachmentId);
+    const safeFileName = attachment.fileName
+      .replace(/^.*[\\/]/, '')
+      .replace(/["\\\r\n\u0000-\u001f\u007f]/g, '_')
+      .slice(0, 255) || 'attachment';
+    response.setHeader('Content-Type', attachment.mimeType);
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('Content-Disposition', `${attachment.inline ? 'inline' : 'attachment'}; filename="${safeFileName}"`);
+    response.send(attachment.buffer);
   }
 
   @Get(':communityId')

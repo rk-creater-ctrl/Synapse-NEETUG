@@ -27,9 +27,12 @@ describe('CommunityController', () => {
     };
     const messages = {
       create: jest.fn().mockResolvedValue({ id: 'message-1' }),
+      createWithAttachments: jest.fn().mockResolvedValue({ id: 'message-attachment-1' }),
+      readAttachmentForUser: jest.fn(),
       list: jest.fn().mockResolvedValue({ items: [], nextCursor: null }),
     };
-    const controller = new CommunityController(communities as never, messages as never);
+    const gateway = { broadcastMessage: jest.fn() };
+    const controller = new CommunityController(communities as never, messages as never, gateway as never);
     const request = { user: { id: 'user-authenticated' } };
     const dto = {
       name: 'Physics', type: CommunityType.GROUP, visibility: CommunityVisibility.PUBLIC,
@@ -70,6 +73,40 @@ describe('CommunityController', () => {
     dto.visibility = CommunityVisibility.PRIVATE;
 
     await expect(validate(dto)).resolves.not.toHaveLength(0);
+  });
+
+  it('derives attachment-message identity from the request and broadcasts only the persisted safe message', async () => {
+    const communities = {};
+    const persisted = { id: 'message-attachment-1', communityId: 'community-1', attachments: [{ id: 'attachment-1' }] };
+    const messages = {
+      createWithAttachments: jest.fn().mockResolvedValue(persisted),
+    };
+    const gateway = { broadcastMessage: jest.fn() };
+    const controller = new CommunityController(communities as never, messages as never, gateway as never);
+    const files = [{ originalname: 'notes.pdf', mimetype: 'application/pdf', size: 5, buffer: Buffer.from('%PDF-') }];
+
+    await expect(controller.createMessageWithAttachments({ user: { id: 'user-authenticated' } }, 'community-1', {}, files))
+      .resolves.toEqual(persisted);
+    expect(messages.createWithAttachments).toHaveBeenCalledWith('user-authenticated', 'community-1', {}, files);
+    expect(gateway.broadcastMessage).toHaveBeenCalledWith(persisted);
+  });
+
+  it('serves authorized documents as safe downloads without exposing storage paths', async () => {
+    const communities = {};
+    const messages = {
+      readAttachmentForUser: jest.fn().mockResolvedValue({
+        buffer: Buffer.from('%PDF-'), mimeType: 'application/pdf', fileName: '../../notes.pdf', inline: false,
+      }),
+    };
+    const controller = new CommunityController(communities as never, messages as never, {} as never);
+    const response = { setHeader: jest.fn(), send: jest.fn() };
+
+    await controller.readAttachment({ user: { id: 'user-reader' } }, 'attachment-1', response);
+
+    expect(messages.readAttachmentForUser).toHaveBeenCalledWith('user-reader', 'attachment-1');
+    expect(response.setHeader).toHaveBeenCalledWith('X-Content-Type-Options', 'nosniff');
+    expect(response.setHeader).toHaveBeenCalledWith('Content-Disposition', 'attachment; filename="notes.pdf"');
+    expect(response.send).toHaveBeenCalledWith(Buffer.from('%PDF-'));
   });
 
   it('rejects arbitrary community membership roles at the DTO boundary', async () => {
