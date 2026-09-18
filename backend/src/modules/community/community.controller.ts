@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, Res, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
@@ -8,11 +8,13 @@ import {
   CreateCommunityDto,
   CreateCommunityMessageDto,
   CreateCommunityMessageWithAttachmentsDto,
+  SetCommunityMessageReactionDto,
   UpdateCommunityMemberRoleDto,
 } from './community.dto';
 import { CommunityGateway } from './community.gateway';
 import { CommunityMessageAttachmentsInterceptor } from './community-message-attachments.interceptor';
 import { CommunityMessagesService } from './community-messages.service';
+import { CommunityReactionsService } from './community-reactions.service';
 import { CommunityService } from './community.service';
 
 type AuthenticatedRequest = { user: { id: string } };
@@ -27,6 +29,7 @@ export class CommunityController {
   constructor(
     private readonly communities: CommunityService,
     private readonly messages: CommunityMessagesService,
+    private readonly reactions: CommunityReactionsService,
     private readonly gateway: CommunityGateway,
   ) {}
 
@@ -99,12 +102,14 @@ export class CommunityController {
 
   @Post(':communityId/messages')
   @ApiOperation({ summary: 'Create a text message as an authorized community member' })
-  createMessage(
+  async createMessage(
     @Req() request: AuthenticatedRequest,
     @Param('communityId') communityId: string,
     @Body() dto: CreateCommunityMessageDto,
   ) {
-    return this.messages.create(request.user.id, communityId, dto);
+    const message = await this.messages.create(request.user.id, communityId, dto);
+    this.gateway.broadcastMessage(message);
+    return message;
   }
 
   @Post(':communityId/messages/attachments')
@@ -120,6 +125,19 @@ export class CommunityController {
     const message = await this.messages.createWithAttachments(request.user.id, communityId, dto, files);
     this.gateway.broadcastMessage(message);
     return message;
+  }
+
+  @Put(':communityId/messages/:messageId/reaction')
+  @ApiOperation({ summary: 'Set or toggle the authenticated member reaction on a community message' })
+  async setMessageReaction(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Param('messageId') messageId: string,
+    @Body() dto: SetCommunityMessageReactionDto,
+  ) {
+    const reactionState = await this.reactions.toggle(request.user.id, communityId, messageId, dto.type);
+    this.gateway.broadcastReaction(reactionState);
+    return reactionState;
   }
 
   @Get(':communityId/messages')

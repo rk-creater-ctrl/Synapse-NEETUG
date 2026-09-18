@@ -26,12 +26,19 @@ describe('CommunityGateway', () => {
     content: 'Hello community',
     isDeleted: false,
     replyToMessageId: null,
+    replyTo: null,
     attachments: [],
+    reactions: [],
+    myReaction: null,
     createdAt,
     updatedAt: createdAt,
     author: { id: 'student-1', displayName: 'Asha Student' },
     ...overrides,
   });
+  const viewerNeutralMessage = (message: Record<string, unknown>) => {
+    const { myReaction: _myReaction, ...broadcast } = message;
+    return broadcast;
+  };
 
   const socket = (id: string): MockSocket => ({
     id,
@@ -169,7 +176,41 @@ describe('CommunityGateway', () => {
     })).resolves.toEqual({ ok: true, data: message });
 
     expect(messages.create).toHaveBeenCalledWith('student-1', 'community-1', { content: 'Announcement' });
-    expect(broadcasts).toEqual([{ room: 'community:community-1', event: 'community:message:new', payload: message }]);
+    expect(broadcasts).toEqual([{ room: 'community:community-1', event: 'community:message:new', payload: viewerNeutralMessage(message) }]);
+  });
+
+  it('persists a text reply through the message service and broadcasts no viewer-specific reaction state', async () => {
+    const client = socket('socket-1');
+    await authenticate(client);
+    const message = persistedMessage({
+      id: 'message-reply', replyToMessageId: 'message-parent',
+      replyTo: { id: 'message-parent', content: 'Parent', isDeleted: false, attachmentCount: 0, author: { id: 'student-2', displayName: 'Bharat Student' } },
+      myReaction: 'LIKE', reactions: [{ type: 'LIKE', count: 1 }],
+    });
+    messages.create.mockResolvedValueOnce(message);
+
+    await expect(gateway.sendMessage(client as never, {
+      communityId: 'community-1', content: 'Reply', replyToMessageId: 'message-parent',
+    })).resolves.toEqual({ ok: true, data: message });
+
+    expect(messages.create).toHaveBeenCalledWith('student-1', 'community-1', {
+      content: 'Reply', replyToMessageId: 'message-parent',
+    });
+    expect(broadcasts).toEqual([{
+      room: 'community:community-1', event: 'community:message:new', payload: viewerNeutralMessage(message),
+    }]);
+    expect((broadcasts[0].payload as Record<string, unknown>).myReaction).toBeUndefined();
+  });
+
+  it('broadcasts viewer-neutral reaction aggregates to the server-derived community room', () => {
+    gateway.broadcastReaction({
+      messageId: 'message-1', communityId: 'community-1', reactions: [{ type: 'LOVE', count: 3 }],
+    });
+
+    expect(broadcasts).toEqual([{
+      room: 'community:community-1', event: 'community:message:reaction',
+      payload: { messageId: 'message-1', communityId: 'community-1', reactions: [{ type: 'LOVE', count: 3 }] },
+    }]);
   });
 
   it('does not broadcast when Phase 12C rejects a CHANNEL member, banned member, or muted member', async () => {
@@ -196,7 +237,7 @@ describe('CommunityGateway', () => {
       .resolves.toEqual({ ok: true, data: message });
 
     expect(client.join).not.toHaveBeenCalled();
-    expect(broadcasts).toEqual([{ room: 'community:community-1', event: 'community:message:new', payload: message }]);
+    expect(broadcasts).toEqual([{ room: 'community:community-1', event: 'community:message:new', payload: viewerNeutralMessage(message) }]);
   });
 
   it('broadcasts a persisted attachment-message DTO unchanged without sending file bytes', () => {
@@ -211,7 +252,7 @@ describe('CommunityGateway', () => {
 
     gateway.broadcastMessage(message as never);
 
-    expect(broadcasts).toEqual([{ room: 'community:community-1', event: 'community:message:new', payload: message }]);
+    expect(broadcasts).toEqual([{ room: 'community:community-1', event: 'community:message:new', payload: viewerNeutralMessage(message) }]);
     expect(JSON.stringify(broadcasts)).not.toContain('%PDF-');
   });
 
@@ -223,6 +264,11 @@ describe('CommunityGateway', () => {
       ok: false, error: { code: 'COMMUNITY_SOCKET_PAYLOAD_INVALID' },
     });
     await expect(gateway.sendMessage(client as never, { communityId: 'community-1', content: 'x'.repeat(4001) })).resolves.toMatchObject({
+      ok: false, error: { code: 'COMMUNITY_MESSAGE_CONTENT_INVALID' },
+    });
+    await expect(gateway.sendMessage(client as never, {
+      communityId: 'community-1', content: 'Reply', replyToMessageId: '',
+    })).resolves.toMatchObject({
       ok: false, error: { code: 'COMMUNITY_MESSAGE_CONTENT_INVALID' },
     });
     expect(communities.getForUser).not.toHaveBeenCalled();

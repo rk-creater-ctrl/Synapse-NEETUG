@@ -7,6 +7,7 @@ import { CommunityAttachmentStorageService } from './community-attachment-storag
 import { CommunityGateway } from './community.gateway';
 import { CommunityMessageAttachmentsInterceptor } from './community-message-attachments.interceptor';
 import { CommunityMessagesService } from './community-messages.service';
+import { CommunityReactionsService } from './community-reactions.service';
 import { CommunityService } from './community.service';
 
 @Module({
@@ -15,6 +16,7 @@ import { CommunityService } from './community.service';
   providers: [
     CommunityService,
     CommunityMessagesService,
+    CommunityReactionsService,
     CommunityAttachmentStorageService,
     CommunityMessageAttachmentsInterceptor,
     CommunityGateway,

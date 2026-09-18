@@ -1,4 +1,4 @@
-import { CommunityMemberRole, CommunityType, CommunityVisibility } from '@prisma/client';
+import { CommunityMemberRole, CommunityReactionType, CommunityType, CommunityVisibility } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 
@@ -34,6 +34,11 @@ export class CreateCommunityMessageDto {
   @IsString()
   @Length(1, 4000)
   content!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 191)
+  replyToMessageId?: string;
 }
 
 export class CreateCommunityMessageWithAttachmentsDto {
@@ -41,6 +46,16 @@ export class CreateCommunityMessageWithAttachmentsDto {
   @IsString()
   @MaxLength(4000)
   content?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 191)
+  replyToMessageId?: string;
+}
+
+export class SetCommunityMessageReactionDto {
+  @IsEnum(CommunityReactionType)
+  type!: CommunityReactionType;
 }
 
 export class CommunityMessageHistoryQueryDto {

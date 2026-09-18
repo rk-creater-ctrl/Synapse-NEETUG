@@ -20,6 +20,7 @@ describe('CommunityMessagesService', () => {
     createdAt: new Date('2026-09-18T09:30:00.000Z'),
     updatedAt: new Date('2026-09-18T09:30:00.000Z'),
     attachments: [],
+    replyTo: null,
     author: author(),
     ...overrides,
   });
@@ -36,14 +37,16 @@ describe('CommunityMessagesService', () => {
   let attachmentRecords: Record<string, jest.Mock>;
   let storage: Record<string, jest.Mock>;
   let communities: { getForUser: jest.Mock };
+  let reactions: { getViewerReactionState: jest.Mock };
   let service: CommunityMessagesService;
 
   beforeEach(() => {
     messages = {
-      create: jest.fn((args: { data: { communityId: string; authorUserId: string; content: string | null } }) =>
+      create: jest.fn((args: { data: { communityId: string; authorUserId: string; content: string | null; replyToMessageId?: string | null } }) =>
         Promise.resolve(message({
           communityId: args.data.communityId,
           content: args.data.content,
+          replyToMessageId: args.data.replyToMessageId ?? null,
           author: author({ id: args.data.authorUserId }),
         }))),
       findFirst: jest.fn(),
@@ -53,6 +56,7 @@ describe('CommunityMessagesService', () => {
     attachmentRecords = { findFirst: jest.fn() };
     storage = { prepare: jest.fn(), store: jest.fn(), remove: jest.fn(), read: jest.fn() };
     communities = { getForUser: jest.fn().mockResolvedValue({ id: 'community-1' }) };
+    reactions = { getViewerReactionState: jest.fn().mockResolvedValue(new Map()) };
     db = {
       communityMessage: messages,
       communityMessageAttachment: attachmentRecords,
@@ -62,7 +66,7 @@ describe('CommunityMessagesService', () => {
           work({ communityMessage: messages }),
       ),
     };
-    service = new CommunityMessagesService(db as never, communities as never, storage as never);
+    service = new CommunityMessagesService(db as never, communities as never, storage as never, reactions as never);
   });
 
   it.each([
@@ -76,7 +80,7 @@ describe('CommunityMessagesService', () => {
     await expect(service.create('user-author', 'community-1', { content: ' Hello community ' }, now))
       .resolves.toMatchObject({ content: 'Hello community', author: { displayName: 'Asha Student' } });
     expect(messages.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: { communityId: 'community-1', authorUserId: 'user-author', content: 'Hello community' },
+      data: expect.objectContaining({ communityId: 'community-1', authorUserId: 'user-author', content: 'Hello community' }),
     }));
   });
 
@@ -154,6 +158,83 @@ describe('CommunityMessagesService', () => {
       content: null,
       attachments: [{ id: 'attachment-1', fileName: 'diagram.jpg', accessUrl: '/api/v1/communities/attachments/attachment-1' }],
     });
+  });
+
+  it('supports an attachment-only reply after validating its parent before any file storage', async () => {
+    const prepared = [{
+      type: 'DOCUMENT', storageKey: '00000000-0000-4000-8000-000000000000.pdf', originalFileName: 'notes.pdf',
+      mimeType: 'application/pdf', sizeBytes: 64, buffer: Buffer.from('%PDF-'),
+    }];
+    const stored = prepared.map(({ buffer: _buffer, ...attachment }) => attachment);
+    memberships.findUnique.mockResolvedValueOnce(membership());
+    messages.findFirst.mockResolvedValueOnce({ id: 'message-parent' });
+    storage.prepare.mockReturnValueOnce(prepared);
+    storage.store.mockResolvedValueOnce(stored);
+
+    await service.createWithAttachments('user-author', 'community-1', { replyToMessageId: 'message-parent' }, [{
+      originalname: 'notes.pdf', mimetype: 'application/pdf', size: 64, buffer: Buffer.from('%PDF-'),
+    }], now);
+
+    expect(messages.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ content: null, replyToMessageId: 'message-parent' }),
+    }));
+  });
+
+  it('rejects an invalid attachment reply target before storing files', async () => {
+    memberships.findUnique.mockResolvedValueOnce(membership());
+    messages.findFirst.mockResolvedValueOnce(null);
+
+    await expect(service.createWithAttachments('user-author', 'community-1', {
+      replyToMessageId: 'message-deleted',
+    }, [{ originalname: 'notes.pdf', mimetype: 'application/pdf', size: 64, buffer: Buffer.from('%PDF-') }], now))
+      .rejects.toMatchObject({ response: { code: 'COMMUNITY_REPLY_TARGET_NOT_FOUND' } });
+    expect(storage.prepare).not.toHaveBeenCalled();
+    expect(storage.store).not.toHaveBeenCalled();
+  });
+
+  it('persists a reply only after the non-deleted parent is verified in the same community', async () => {
+    memberships.findUnique.mockResolvedValueOnce(membership());
+    messages.findFirst.mockResolvedValueOnce({ id: 'message-parent' });
+
+    await expect(service.create('user-author', 'community-1', {
+      content: ' Reply text ', replyToMessageId: 'message-parent',
+    }, now)).resolves.toMatchObject({ content: 'Reply text', replyToMessageId: 'message-parent', replyTo: null });
+
+    expect(messages.findFirst).toHaveBeenCalledWith({
+      where: { id: 'message-parent', communityId: 'community-1', deletedAt: null },
+      select: { id: true },
+    });
+    expect(messages.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ replyToMessageId: 'message-parent' }),
+    }));
+  });
+
+  it('does not persist a reply when its parent is deleted, missing, or in another community', async () => {
+    memberships.findUnique.mockResolvedValue(membership());
+    messages.findFirst.mockResolvedValue(null);
+
+    await expect(service.create('user-author', 'community-1', {
+      content: 'Reply', replyToMessageId: 'message-other-community',
+    }, now)).rejects.toMatchObject({ response: { code: 'COMMUNITY_REPLY_TARGET_NOT_FOUND' } });
+    expect(messages.create).not.toHaveBeenCalled();
+  });
+
+  it('applies the existing GROUP and CHANNEL publishing policy to replies', async () => {
+    memberships.findUnique
+      .mockResolvedValueOnce(membership())
+      .mockResolvedValueOnce(membership({ community: { type: CommunityType.CHANNEL }, role: CommunityMemberRole.ADMIN }))
+      .mockResolvedValueOnce(membership({ community: { type: CommunityType.CHANNEL }, role: CommunityMemberRole.MEMBER }));
+    messages.findFirst.mockResolvedValue({ id: 'message-parent' });
+
+    await expect(service.create('group-member', 'community-1', {
+      content: 'Group reply', replyToMessageId: 'message-parent',
+    }, now)).resolves.toMatchObject({ replyToMessageId: 'message-parent' });
+    await expect(service.create('channel-admin', 'community-1', {
+      content: 'Channel reply', replyToMessageId: 'message-parent',
+    }, now)).resolves.toMatchObject({ replyToMessageId: 'message-parent' });
+    await expect(service.create('channel-member', 'community-1', {
+      content: 'Blocked reply', replyToMessageId: 'message-parent',
+    }, now)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('rejects an empty attachment message and removes stored files when database persistence fails', async () => {
@@ -280,6 +361,41 @@ describe('CommunityMessagesService', () => {
     expect(result.items[0]).not.toHaveProperty('email');
     expect(result.items[0]).not.toHaveProperty('passwordHash');
     expect(result.items[0]).not.toHaveProperty('deletedAt');
+  });
+
+  it('returns a shallow reply preview and batched viewer reaction state without recursive message loading', async () => {
+    reactions.getViewerReactionState.mockResolvedValueOnce(new Map([['message-reply', {
+      reactions: [{ type: 'LIKE', count: 2 }], myReaction: 'LIKE',
+    }]]));
+    messages.findMany.mockResolvedValueOnce([message({
+      id: 'message-reply', replyToMessageId: 'message-parent', replyTo: {
+        id: 'message-parent', content: 'Parent text', deletedAt: null, attachments: [{ id: 'attachment-parent' }], author: author(),
+      },
+    })]);
+
+    const result = await service.list('user-reader', 'community-1', {});
+
+    expect(result.items[0]).toMatchObject({
+      replyTo: { id: 'message-parent', content: 'Parent text', isDeleted: false, attachmentCount: 1 },
+      reactions: [{ type: 'LIKE', count: 2 }], myReaction: 'LIKE',
+    });
+    expect(reactions.getViewerReactionState).toHaveBeenCalledWith('user-reader', ['message-reply']);
+  });
+
+  it('redacts a deleted parent preview and never returns viewer reactions for a deleted message', async () => {
+    messages.findMany.mockResolvedValueOnce([message({
+      id: 'message-deleted', deletedAt: now, replyToMessageId: 'message-parent', replyTo: {
+        id: 'message-parent', content: 'Removed parent', deletedAt: now, attachments: [{ id: 'attachment-parent' }], author: author(),
+      },
+    })]);
+
+    const result = await service.list('user-reader', 'community-1', {});
+
+    expect(result.items[0]).toMatchObject({
+      content: null, reactions: [], myReaction: null,
+      replyTo: { id: 'message-parent', content: null, isDeleted: true, attachmentCount: 0 },
+    });
+    expect(reactions.getViewerReactionState).toHaveBeenCalledWith('user-reader', []);
   });
 
   it('authorizes attachment reads through the community read policy and hides deleted or missing attachment records', async () => {

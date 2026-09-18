@@ -6,6 +6,7 @@ import { ConnectedSocket, MessageBody, SubscribeMessage, WebSocketGateway, WebSo
 import { Server, Socket } from 'socket.io';
 
 import { CommunityMessagesService } from './community-messages.service';
+import { CommunityReactionBroadcast } from './community-reactions.service';
 import { CommunityService } from './community.service';
 
 type SocketIdentity = { id: string; roles: RoleName[] };
@@ -16,7 +17,7 @@ type CommunitySocket = Socket & {
   };
 };
 type CommunityPayload = { communityId: string };
-type SendMessagePayload = CommunityPayload & { content: string };
+type SendMessagePayload = CommunityPayload & { content: string; replyToMessageId?: string };
 type CommunitySocketSuccess<T> = { ok: true; data: T };
 type CommunitySocketFailure = { ok: false; error: { code: string; message: string } };
 type CommunitySocketAck<T> = CommunitySocketSuccess<T> | CommunitySocketFailure;
@@ -92,7 +93,10 @@ export class CommunityGateway {
     if (!this.isSendMessagePayload(payload)) return this.invalidMessagePayload();
 
     try {
-      const message = await this.messages.create(identity.id, payload.communityId, { content: payload.content });
+      const message = await this.messages.create(identity.id, payload.communityId, {
+        content: payload.content,
+        ...(payload.replyToMessageId ? { replyToMessageId: payload.replyToMessageId } : {}),
+      });
       this.broadcastMessage(message);
       return { ok: true, data: message };
     } catch (error) {
@@ -101,7 +105,12 @@ export class CommunityGateway {
   }
 
   broadcastMessage(message: Awaited<ReturnType<CommunityMessagesService['create']>>) {
-    this.server.to(this.roomName(message.communityId)).emit('community:message:new', message);
+    const { myReaction: _myReaction, ...broadcastMessage } = message;
+    this.server.to(this.roomName(message.communityId)).emit('community:message:new', broadcastMessage);
+  }
+
+  broadcastReaction(reaction: CommunityReactionBroadcast) {
+    this.server.to(this.roomName(reaction.communityId)).emit('community:message:reaction', reaction);
   }
 
   private async authenticate(socket: CommunitySocket, token: string): Promise<void> {
@@ -133,7 +142,13 @@ export class CommunityGateway {
   private isSendMessagePayload(value: unknown): value is SendMessagePayload {
     if (!this.isCommunityPayload(value)) return false;
     const content = (value as { content?: unknown }).content;
-    return typeof content === 'string' && content.length <= MAX_MESSAGE_LENGTH;
+    const replyToMessageId = (value as { replyToMessageId?: unknown }).replyToMessageId;
+    return typeof content === 'string'
+      && content.length <= MAX_MESSAGE_LENGTH
+      && (replyToMessageId === undefined
+        || (typeof replyToMessageId === 'string'
+          && replyToMessageId.length > 0
+          && replyToMessageId.length <= MAX_COMMUNITY_ID_LENGTH));
   }
 
   private roomName(communityId: string) {

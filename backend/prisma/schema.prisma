@@ -166,6 +166,13 @@ enum CommunityAttachmentType {
   DOCUMENT
 }
 
+enum CommunityReactionType {
+  LIKE
+  LOVE
+  CELEBRATE
+  INSIGHTFUL
+}
+
 model User {
   testAttempts          TestAttempt[]
   id                String              @id @default(cuid())
@@ -191,6 +198,7 @@ model User {
   communitiesCreated Community[]          @relation("CommunityCreator")
   communityMemberships CommunityMembership[]
   communityMessages CommunityMessage[]
+  communityMessageReactions CommunityMessageReaction[]
 }
 
 model Role {
@@ -877,6 +885,7 @@ model CommunityMessage {
   replyTo          CommunityMessage? @relation("CommunityMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
   replies          CommunityMessage[] @relation("CommunityMessageReplies")
   attachments      CommunityMessageAttachment[]
+  reactions        CommunityMessageReaction[]
 
   @@index([communityId, createdAt, id])
   @@index([replyToMessageId, createdAt, id])
@@ -897,6 +906,20 @@ model CommunityMessageAttachment {
 
   @@unique([messageId, position])
   @@index([messageId, position])
+}
+
+model CommunityMessageReaction {
+  id        String                @id @default(cuid())
+  messageId String
+  userId    String
+  type      CommunityReactionType
+  createdAt DateTime              @default(now())
+  message   CommunityMessage      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([messageId, userId])
+  @@index([messageId, type])
+  @@index([userId, messageId])
 }
 
 model ContentImportJob {

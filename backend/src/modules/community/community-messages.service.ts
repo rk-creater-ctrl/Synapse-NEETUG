@@ -13,6 +13,10 @@ import {
   CreateCommunityMessageWithAttachmentsDto,
 } from './community.dto';
 import { CommunityService } from './community.service';
+import {
+  CommunityMessageReactionState,
+  CommunityReactionsService,
+} from './community-reactions.service';
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 50;
 
@@ -34,6 +38,21 @@ const messageSelect = {
       sizeBytes: true,
     },
   },
+  replyTo: {
+    select: {
+      id: true,
+      content: true,
+      deletedAt: true,
+      attachments: { select: { id: true } },
+      author: {
+        select: {
+          id: true,
+          studentProfile: { select: { fullName: true } },
+          mentorProfile: { select: { fullName: true } },
+        },
+      },
+    },
+  },
   author: {
     select: {
       id: true,
@@ -51,18 +70,20 @@ export class CommunityMessagesService {
     private readonly db: PrismaService,
     private readonly communities: CommunityService,
     private readonly storage: CommunityAttachmentStorageService,
+    private readonly reactions: CommunityReactionsService,
   ) {}
 
   async create(userId: string, communityId: string, dto: CreateCommunityMessageDto, now = new Date()) {
     const content = this.normalizedContent(dto.content);
     if (!content) this.messageRequired();
     await this.assertMayPublish(userId, communityId, now);
+    await this.assertReplyTarget(communityId, dto.replyToMessageId);
 
     const message = await this.db.communityMessage.create({
-      data: { communityId, authorUserId: userId, content },
+      data: { communityId, authorUserId: userId, content, replyToMessageId: dto.replyToMessageId ?? null },
       select: messageSelect,
     });
-    return this.toResponse(message);
+    return this.toResponse(message, { reactions: [], myReaction: null });
   }
 
   async createWithAttachments(
@@ -75,6 +96,7 @@ export class CommunityMessagesService {
     const content = this.normalizedContent(dto.content);
     if (!content && (!files || files.length === 0)) this.messageRequired();
     await this.assertMayPublish(userId, communityId, now);
+    await this.assertReplyTarget(communityId, dto.replyToMessageId);
     const preparedAttachments = this.storage.prepare(files);
     if (!content && preparedAttachments.length === 0) this.messageRequired();
 
@@ -86,6 +108,7 @@ export class CommunityMessagesService {
             communityId,
             authorUserId: userId,
             content,
+            replyToMessageId: dto.replyToMessageId ?? null,
             attachments: {
               create: storedAttachments.map((attachment, position) => ({ ...attachment, position })),
             },
@@ -93,7 +116,7 @@ export class CommunityMessagesService {
           select: messageSelect,
         }),
       );
-      return this.toResponse(message);
+      return this.toResponse(message, { reactions: [], myReaction: null });
     } catch (error) {
       await this.storage.remove(storedAttachments.map((attachment) => attachment.storageKey));
       throw error;
@@ -175,13 +198,22 @@ export class CommunityMessagesService {
     const messages = page.slice(0, limit);
     const nextCursor = hasMore ? messages[messages.length - 1]?.id ?? null : null;
 
+    const chronologicalMessages = messages.reverse();
+    const reactionStates = await this.reactions.getViewerReactionState(
+      userId,
+      chronologicalMessages.filter((message) => message.deletedAt === null).map((message) => message.id),
+    );
+
     return {
-      items: messages.reverse().map((message) => this.toResponse(message)),
+      items: chronologicalMessages.map((message) => this.toResponse(
+        message,
+        reactionStates.get(message.id) ?? { reactions: [], myReaction: null },
+      )),
       nextCursor,
     };
   }
 
-  private toResponse(message: MessageRecord) {
+  private toResponse(message: MessageRecord, reactionState: CommunityMessageReactionState) {
     const isDeleted = message.deletedAt !== null;
     return {
       id: message.id,
@@ -189,6 +221,7 @@ export class CommunityMessagesService {
       content: isDeleted ? null : message.content,
       isDeleted,
       replyToMessageId: message.replyToMessageId,
+      replyTo: message.replyTo ? this.toReplyPreview(message.replyTo) : null,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
       attachments: isDeleted
@@ -201,13 +234,44 @@ export class CommunityMessagesService {
           sizeBytes: attachment.sizeBytes,
           accessUrl: `/api/v1/communities/attachments/${attachment.id}`,
         })),
-      author: {
-        id: message.author.id,
-        displayName: message.author.studentProfile?.fullName
-          ?? message.author.mentorProfile?.fullName
-          ?? 'User',
-      },
+      reactions: isDeleted ? [] : reactionState.reactions,
+      myReaction: isDeleted ? null : reactionState.myReaction,
+      author: this.toSafeAuthor(message.author),
     };
+  }
+
+  private toReplyPreview(replyTo: NonNullable<MessageRecord['replyTo']>) {
+    const isDeleted = replyTo.deletedAt !== null;
+    return {
+      id: replyTo.id,
+      content: isDeleted ? null : replyTo.content,
+      isDeleted,
+      attachmentCount: isDeleted ? 0 : replyTo.attachments.length,
+      author: this.toSafeAuthor(replyTo.author),
+    };
+  }
+
+  private toSafeAuthor(author: MessageRecord['author']) {
+    return {
+      id: author.id,
+      displayName: author.studentProfile?.fullName
+        ?? author.mentorProfile?.fullName
+        ?? 'User',
+    };
+  }
+
+  private async assertReplyTarget(communityId: string, replyToMessageId?: string) {
+    if (!replyToMessageId) return;
+    const target = await this.db.communityMessage.findFirst({
+      where: { id: replyToMessageId, communityId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!target) {
+      throw new NotFoundException({
+        code: 'COMMUNITY_REPLY_TARGET_NOT_FOUND',
+        message: 'Reply target not found.',
+      });
+    }
   }
 
   private normalizedContent(value: string | undefined): string | null {

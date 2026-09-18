@@ -1,13 +1,15 @@
 import 'reflect-metadata';
 import { validate } from 'class-validator';
+import { ForbiddenException } from '@nestjs/common';
 
-import { CommunityMemberRole, CommunityType, CommunityVisibility } from '@prisma/client';
+import { CommunityMemberRole, CommunityReactionType, CommunityType, CommunityVisibility } from '@prisma/client';
 
 import { CommunityController } from './community.controller';
 import {
   CommunityMessageHistoryQueryDto,
   CreateCommunityDto,
   CreateCommunityMessageDto,
+  SetCommunityMessageReactionDto,
   UpdateCommunityMemberRoleDto,
 } from './community.dto';
 
@@ -31,8 +33,9 @@ describe('CommunityController', () => {
       readAttachmentForUser: jest.fn(),
       list: jest.fn().mockResolvedValue({ items: [], nextCursor: null }),
     };
-    const gateway = { broadcastMessage: jest.fn() };
-    const controller = new CommunityController(communities as never, messages as never, gateway as never);
+    const reactions = { toggle: jest.fn().mockResolvedValue({ messageId: 'message-1', communityId: 'community-1', reactions: [], myReaction: null }) };
+    const gateway = { broadcastMessage: jest.fn(), broadcastReaction: jest.fn() };
+    const controller = new CommunityController(communities as never, messages as never, reactions as never, gateway as never);
     const request = { user: { id: 'user-authenticated' } };
     const dto = {
       name: 'Physics', type: CommunityType.GROUP, visibility: CommunityVisibility.PUBLIC,
@@ -48,6 +51,7 @@ describe('CommunityController', () => {
     await controller.updateMemberRole(request, 'community-1', 'user-target', { role: CommunityMemberRole.MODERATOR });
     await controller.removeMember(request, 'community-1', 'user-target');
     await controller.createMessage(request, 'community-1', { content: 'Hello community' });
+    await controller.setMessageReaction(request, 'community-1', 'message-1', { type: CommunityReactionType.LIKE });
     await controller.listMessages(request, 'community-1', { limit: 20 });
     await controller.get(request, 'community-1');
 
@@ -61,6 +65,9 @@ describe('CommunityController', () => {
     expect(communities.updateMemberRole).toHaveBeenCalledWith('user-authenticated', 'community-1', 'user-target', CommunityMemberRole.MODERATOR);
     expect(communities.removeMember).toHaveBeenCalledWith('user-authenticated', 'community-1', 'user-target');
     expect(messages.create).toHaveBeenCalledWith('user-authenticated', 'community-1', { content: 'Hello community' });
+    expect(gateway.broadcastMessage).toHaveBeenCalledWith({ id: 'message-1' });
+    expect(reactions.toggle).toHaveBeenCalledWith('user-authenticated', 'community-1', 'message-1', CommunityReactionType.LIKE);
+    expect(gateway.broadcastReaction).toHaveBeenCalledWith({ messageId: 'message-1', communityId: 'community-1', reactions: [], myReaction: null });
     expect(messages.list).toHaveBeenCalledWith('user-authenticated', 'community-1', { limit: 20 });
     expect(communities.getForUser).toHaveBeenCalledWith('user-authenticated', 'community-1');
   });
@@ -82,7 +89,7 @@ describe('CommunityController', () => {
       createWithAttachments: jest.fn().mockResolvedValue(persisted),
     };
     const gateway = { broadcastMessage: jest.fn() };
-    const controller = new CommunityController(communities as never, messages as never, gateway as never);
+    const controller = new CommunityController(communities as never, messages as never, {} as never, gateway as never);
     const files = [{ originalname: 'notes.pdf', mimetype: 'application/pdf', size: 5, buffer: Buffer.from('%PDF-') }];
 
     await expect(controller.createMessageWithAttachments({ user: { id: 'user-authenticated' } }, 'community-1', {}, files))
@@ -98,7 +105,7 @@ describe('CommunityController', () => {
         buffer: Buffer.from('%PDF-'), mimeType: 'application/pdf', fileName: '../../notes.pdf', inline: false,
       }),
     };
-    const controller = new CommunityController(communities as never, messages as never, {} as never);
+    const controller = new CommunityController(communities as never, messages as never, {} as never, {} as never);
     const response = { setHeader: jest.fn(), send: jest.fn() };
 
     await controller.readAttachment({ user: { id: 'user-reader' } }, 'attachment-1', response);
@@ -124,5 +131,29 @@ describe('CommunityController', () => {
 
     await expect(validate(message)).resolves.not.toHaveLength(0);
     await expect(validate(history)).resolves.not.toHaveLength(0);
+  });
+
+  it('validates reaction types at the DTO boundary', async () => {
+    const reaction = new SetCommunityMessageReactionDto();
+    reaction.type = 'UNSUPPORTED' as CommunityReactionType;
+
+    await expect(validate(reaction)).resolves.not.toHaveLength(0);
+  });
+
+  it('broadcasts a reaction aggregate only after the persisted mutation succeeds', async () => {
+    const reactions = {
+      toggle: jest.fn()
+        .mockResolvedValueOnce({ messageId: 'message-1', communityId: 'community-1', reactions: [], myReaction: null })
+        .mockRejectedValueOnce(new ForbiddenException({ code: 'COMMUNITY_REACTION_NOT_ALLOWED' })),
+    };
+    const gateway = { broadcastReaction: jest.fn() };
+    const controller = new CommunityController({} as never, {} as never, reactions as never, gateway as never);
+    const request = { user: { id: 'user-authenticated' } };
+
+    await controller.setMessageReaction(request, 'community-1', 'message-1', { type: CommunityReactionType.LIKE });
+    await expect(controller.setMessageReaction(request, 'community-1', 'message-1', { type: CommunityReactionType.LOVE }))
+      .rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(gateway.broadcastReaction).toHaveBeenCalledTimes(1);
   });
 });
