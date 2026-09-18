@@ -113,6 +113,26 @@ export class CommunityGateway {
     this.server.to(this.roomName(reaction.communityId)).emit('community:message:reaction', reaction);
   }
 
+  broadcastMessageDeleted(event: { communityId: string; messageId: string; deletedAt: Date }) {
+    this.server.to(this.roomName(event.communityId)).emit('community:message:deleted', event);
+  }
+
+  broadcastMemberModerated(event: {
+    communityId: string;
+    userId: string;
+    action: 'MUTED' | 'UNMUTED' | 'BANNED' | 'UNBANNED';
+    mutedUntil?: Date;
+  }) {
+    this.server.to(this.roomName(event.communityId)).emit('community:member:moderated', event);
+  }
+
+  async evictUserFromCommunity(communityId: string, userId: string) {
+    const room = this.roomName(communityId);
+    await Promise.all([...this.socketRegistry().values()]
+      .filter((socket) => socket.data.identity?.id === userId)
+      .map((socket) => socket.leave(room)));
+  }
+
   private async authenticate(socket: CommunitySocket, token: string): Promise<void> {
     try {
       const payload = await this.jwt.verifyAsync<{ sub?: string; roles?: RoleName[] }>(token, {
@@ -153,6 +173,16 @@ export class CommunityGateway {
 
   private roomName(communityId: string) {
     return `community:${communityId}`;
+  }
+
+  private socketRegistry(): Map<string, CommunitySocket> {
+    const sockets = this.server.sockets as unknown;
+    if (sockets instanceof Map) return sockets as Map<string, CommunitySocket>;
+    if (typeof sockets === 'object' && sockets !== null && 'sockets' in sockets) {
+      const nestedSockets = (sockets as { sockets?: unknown }).sockets;
+      if (nestedSockets instanceof Map) return nestedSockets as Map<string, CommunitySocket>;
+    }
+    return new Map();
   }
 
   private unauthorized(): CommunitySocketFailure {

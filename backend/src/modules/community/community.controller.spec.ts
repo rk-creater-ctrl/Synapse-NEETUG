@@ -2,13 +2,15 @@ import 'reflect-metadata';
 import { validate } from 'class-validator';
 import { ForbiddenException } from '@nestjs/common';
 
-import { CommunityMemberRole, CommunityReactionType, CommunityType, CommunityVisibility } from '@prisma/client';
+import { CommunityMemberRole, CommunityReactionType, CommunityReportReason, CommunityType, CommunityVisibility } from '@prisma/client';
 
 import { CommunityController } from './community.controller';
 import {
   CommunityMessageHistoryQueryDto,
   CreateCommunityDto,
   CreateCommunityMessageDto,
+  CreateCommunityMessageReportDto,
+  MuteCommunityMemberDto,
   SetCommunityMessageReactionDto,
   UpdateCommunityMemberRoleDto,
 } from './community.dto';
@@ -34,8 +36,11 @@ describe('CommunityController', () => {
       list: jest.fn().mockResolvedValue({ items: [], nextCursor: null }),
     };
     const reactions = { toggle: jest.fn().mockResolvedValue({ messageId: 'message-1', communityId: 'community-1', reactions: [], myReaction: null }) };
+    const moderation = {
+      reportMessage: jest.fn(), deleteMessage: jest.fn(), muteMember: jest.fn(), unmuteMember: jest.fn(), banMember: jest.fn(), unbanMember: jest.fn(),
+    };
     const gateway = { broadcastMessage: jest.fn(), broadcastReaction: jest.fn() };
-    const controller = new CommunityController(communities as never, messages as never, reactions as never, gateway as never);
+    const controller = new CommunityController(communities as never, messages as never, reactions as never, moderation as never, gateway as never);
     const request = { user: { id: 'user-authenticated' } };
     const dto = {
       name: 'Physics', type: CommunityType.GROUP, visibility: CommunityVisibility.PUBLIC,
@@ -89,7 +94,7 @@ describe('CommunityController', () => {
       createWithAttachments: jest.fn().mockResolvedValue(persisted),
     };
     const gateway = { broadcastMessage: jest.fn() };
-    const controller = new CommunityController(communities as never, messages as never, {} as never, gateway as never);
+    const controller = new CommunityController(communities as never, messages as never, {} as never, {} as never, gateway as never);
     const files = [{ originalname: 'notes.pdf', mimetype: 'application/pdf', size: 5, buffer: Buffer.from('%PDF-') }];
 
     await expect(controller.createMessageWithAttachments({ user: { id: 'user-authenticated' } }, 'community-1', {}, files))
@@ -105,7 +110,7 @@ describe('CommunityController', () => {
         buffer: Buffer.from('%PDF-'), mimeType: 'application/pdf', fileName: '../../notes.pdf', inline: false,
       }),
     };
-    const controller = new CommunityController(communities as never, messages as never, {} as never, {} as never);
+    const controller = new CommunityController(communities as never, messages as never, {} as never, {} as never, {} as never);
     const response = { setHeader: jest.fn(), send: jest.fn() };
 
     await controller.readAttachment({ user: { id: 'user-reader' } }, 'attachment-1', response);
@@ -140,6 +145,17 @@ describe('CommunityController', () => {
     await expect(validate(reaction)).resolves.not.toHaveLength(0);
   });
 
+  it('validates bounded report details and server-controlled mute durations at the DTO boundary', async () => {
+    const report = new CreateCommunityMessageReportDto();
+    report.reason = CommunityReportReason.SPAM;
+    report.details = 'x'.repeat(1001);
+    const mute = new MuteCommunityMemberDto();
+    mute.durationMinutes = 10_081;
+
+    await expect(validate(report)).resolves.not.toHaveLength(0);
+    await expect(validate(mute)).resolves.not.toHaveLength(0);
+  });
+
   it('broadcasts a reaction aggregate only after the persisted mutation succeeds', async () => {
     const reactions = {
       toggle: jest.fn()
@@ -147,7 +163,7 @@ describe('CommunityController', () => {
         .mockRejectedValueOnce(new ForbiddenException({ code: 'COMMUNITY_REACTION_NOT_ALLOWED' })),
     };
     const gateway = { broadcastReaction: jest.fn() };
-    const controller = new CommunityController({} as never, {} as never, reactions as never, gateway as never);
+    const controller = new CommunityController({} as never, {} as never, reactions as never, {} as never, gateway as never);
     const request = { user: { id: 'user-authenticated' } };
 
     await controller.setMessageReaction(request, 'community-1', 'message-1', { type: CommunityReactionType.LIKE });
@@ -155,5 +171,37 @@ describe('CommunityController', () => {
       .rejects.toBeInstanceOf(ForbiddenException);
 
     expect(gateway.broadcastReaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('broadcasts persisted moderation events and evicts only after a successful ban', async () => {
+    const moderation = {
+      deleteMessage: jest.fn().mockResolvedValue({ communityId: 'community-1', messageId: 'message-1', deletedAt: new Date(), changed: true }),
+      banMember: jest.fn().mockResolvedValue({ communityId: 'community-1', userId: 'user-target', action: 'BANNED', changed: true }),
+    };
+    const gateway = { broadcastMessageDeleted: jest.fn(), evictUserFromCommunity: jest.fn(), broadcastMemberModerated: jest.fn() };
+    const controller = new CommunityController({} as never, {} as never, {} as never, moderation as never, gateway as never);
+    const request = { user: { id: 'user-owner' } };
+
+    await controller.deleteMessage(request, 'community-1', 'message-1', {});
+    await controller.banMember(request, 'community-1', 'user-target', {});
+
+    expect(gateway.broadcastMessageDeleted).toHaveBeenCalledTimes(1);
+    expect(gateway.evictUserFromCommunity).toHaveBeenCalledWith('community-1', 'user-target');
+    expect(gateway.broadcastMemberModerated).toHaveBeenCalledWith({
+      communityId: 'community-1', userId: 'user-target', action: 'BANNED', changed: true,
+    });
+  });
+
+  it('evicts a removed member only from a private community room', async () => {
+    const communities = {
+      getForUser: jest.fn().mockResolvedValue({ visibility: CommunityVisibility.PRIVATE }),
+      removeMember: jest.fn().mockResolvedValue({ communityId: 'community-1', userId: 'user-target', removed: true }),
+    };
+    const gateway = { evictUserFromCommunity: jest.fn() };
+    const controller = new CommunityController(communities as never, {} as never, {} as never, {} as never, gateway as never);
+
+    await controller.removeMember({ user: { id: 'user-owner' } }, 'community-1', 'user-target');
+
+    expect(gateway.evictUserFromCommunity).toHaveBeenCalledWith('community-1', 'user-target');
   });
 });

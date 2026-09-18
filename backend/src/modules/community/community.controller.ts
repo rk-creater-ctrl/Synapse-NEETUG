@@ -1,19 +1,25 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, Res, UploadedFiles, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { CommunityVisibility } from '@prisma/client';
 
 import { JwtAuthGuard } from '../../shared/guards/jwt-auth.guard';
 import {
   AddCommunityMemberDto,
+  BanCommunityMemberDto,
   CommunityMessageHistoryQueryDto,
+  CreateCommunityMessageReportDto,
   CreateCommunityDto,
   CreateCommunityMessageDto,
   CreateCommunityMessageWithAttachmentsDto,
+  ModerateCommunityMessageDto,
+  MuteCommunityMemberDto,
   SetCommunityMessageReactionDto,
   UpdateCommunityMemberRoleDto,
 } from './community.dto';
 import { CommunityGateway } from './community.gateway';
 import { CommunityMessageAttachmentsInterceptor } from './community-message-attachments.interceptor';
 import { CommunityMessagesService } from './community-messages.service';
+import { CommunityModerationService } from './community-moderation.service';
 import { CommunityReactionsService } from './community-reactions.service';
 import { CommunityService } from './community.service';
 
@@ -30,6 +36,7 @@ export class CommunityController {
     private readonly communities: CommunityService,
     private readonly messages: CommunityMessagesService,
     private readonly reactions: CommunityReactionsService,
+    private readonly moderation: CommunityModerationService,
     private readonly gateway: CommunityGateway,
   ) {}
 
@@ -92,12 +99,17 @@ export class CommunityController {
 
   @Delete(':communityId/members/:userId')
   @ApiOperation({ summary: 'Remove a managed community member without banning them' })
-  removeMember(
+  async removeMember(
     @Req() request: AuthenticatedRequest,
     @Param('communityId') communityId: string,
     @Param('userId') userId: string,
   ) {
-    return this.communities.removeMember(request.user.id, communityId, userId);
+    const community = await this.communities.getForUser(request.user.id, communityId);
+    const result = await this.communities.removeMember(request.user.id, communityId, userId);
+    if (community.visibility === CommunityVisibility.PRIVATE) {
+      await this.gateway.evictUserFromCommunity(communityId, userId);
+    }
+    return result;
   }
 
   @Post(':communityId/messages')
@@ -127,6 +139,30 @@ export class CommunityController {
     return message;
   }
 
+  @Post(':communityId/messages/:messageId/reports')
+  @ApiOperation({ summary: 'Report an accessible non-deleted community message' })
+  reportMessage(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Param('messageId') messageId: string,
+    @Body() dto: CreateCommunityMessageReportDto,
+  ) {
+    return this.moderation.reportMessage(request.user.id, communityId, messageId, dto);
+  }
+
+  @Delete(':communityId/messages/:messageId')
+  @ApiOperation({ summary: 'Soft-delete a community message through moderation authority' })
+  async deleteMessage(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Param('messageId') messageId: string,
+    @Body() dto: ModerateCommunityMessageDto,
+  ) {
+    const result = await this.moderation.deleteMessage(request.user.id, communityId, messageId, dto);
+    if (result.changed) this.gateway.broadcastMessageDeleted(result);
+    return result;
+  }
+
   @Put(':communityId/messages/:messageId/reaction')
   @ApiOperation({ summary: 'Set or toggle the authenticated member reaction on a community message' })
   async setMessageReaction(
@@ -138,6 +174,59 @@ export class CommunityController {
     const reactionState = await this.reactions.toggle(request.user.id, communityId, messageId, dto.type);
     this.gateway.broadcastReaction(reactionState);
     return reactionState;
+  }
+
+  @Put(':communityId/members/:userId/mute')
+  @ApiOperation({ summary: 'Mute a lower-authority community member for a bounded server-calculated duration' })
+  async muteMember(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Param('userId') userId: string,
+    @Body() dto: MuteCommunityMemberDto,
+  ) {
+    const result = await this.moderation.muteMember(request.user.id, communityId, userId, dto);
+    this.gateway.broadcastMemberModerated(result);
+    return result;
+  }
+
+  @Delete(':communityId/members/:userId/mute')
+  @ApiOperation({ summary: 'Remove a community member mute' })
+  async unmuteMember(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Param('userId') userId: string,
+  ) {
+    const result = await this.moderation.unmuteMember(request.user.id, communityId, userId);
+    if (result.changed) this.gateway.broadcastMemberModerated(result);
+    return result;
+  }
+
+  @Put(':communityId/members/:userId/ban')
+  @ApiOperation({ summary: 'Ban a lower-authority community member and evict their community-room sockets' })
+  async banMember(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Param('userId') userId: string,
+    @Body() dto: BanCommunityMemberDto,
+  ) {
+    const result = await this.moderation.banMember(request.user.id, communityId, userId, dto);
+    if (result.changed) {
+      await this.gateway.evictUserFromCommunity(communityId, userId);
+      this.gateway.broadcastMemberModerated(result);
+    }
+    return result;
+  }
+
+  @Delete(':communityId/members/:userId/ban')
+  @ApiOperation({ summary: 'Restore a previously banned community membership without changing its role' })
+  async unbanMember(
+    @Req() request: AuthenticatedRequest,
+    @Param('communityId') communityId: string,
+    @Param('userId') userId: string,
+  ) {
+    const result = await this.moderation.unbanMember(request.user.id, communityId, userId);
+    if (result.changed) this.gateway.broadcastMemberModerated(result);
+    return result;
   }
 
   @Get(':communityId/messages')

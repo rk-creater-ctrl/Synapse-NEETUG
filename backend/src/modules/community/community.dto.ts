@@ -1,4 +1,10 @@
-import { CommunityMemberRole, CommunityReactionType, CommunityType, CommunityVisibility } from '@prisma/client';
+import {
+  CommunityMemberRole,
+  CommunityReactionType,
+  CommunityReportReason,
+  CommunityType,
+  CommunityVisibility,
+} from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 
@@ -56,6 +62,43 @@ export class CreateCommunityMessageWithAttachmentsDto {
 export class SetCommunityMessageReactionDto {
   @IsEnum(CommunityReactionType)
   type!: CommunityReactionType;
+}
+
+export class CreateCommunityMessageReportDto {
+  @IsEnum(CommunityReportReason)
+  reason!: CommunityReportReason;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  details?: string;
+}
+
+export class ModerateCommunityMessageDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  reason?: string;
+}
+
+export class MuteCommunityMemberDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10_080)
+  durationMinutes!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  reason?: string;
+}
+
+export class BanCommunityMemberDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  reason?: string;
 }
 
 export class CommunityMessageHistoryQueryDto {

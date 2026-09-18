@@ -173,6 +173,29 @@ enum CommunityReactionType {
   INSIGHTFUL
 }
 
+enum CommunityReportReason {
+  SPAM
+  HARASSMENT
+  ABUSE
+  MISINFORMATION
+  INAPPROPRIATE_CONTENT
+  OTHER
+}
+
+enum CommunityReportStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum CommunityModerationActionType {
+  MESSAGE_DELETED
+  MEMBER_MUTED
+  MEMBER_UNMUTED
+  MEMBER_BANNED
+  MEMBER_UNBANNED
+}
+
 model User {
   testAttempts          TestAttempt[]
   id                String              @id @default(cuid())
@@ -199,6 +222,10 @@ model User {
   communityMemberships CommunityMembership[]
   communityMessages CommunityMessage[]
   communityMessageReactions CommunityMessageReaction[]
+  communityMessageReports CommunityMessageReport[] @relation("CommunityMessageReporter")
+  resolvedCommunityMessageReports CommunityMessageReport[] @relation("CommunityMessageReportResolver")
+  communityModerationActions CommunityModerationAction[] @relation("CommunityModerationActor")
+  communityModerationTargets CommunityModerationAction[] @relation("CommunityModerationTargetUser")
 }
 
 model Role {
@@ -849,6 +876,8 @@ model Community {
   createdBy       User                @relation("CommunityCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
   memberships     CommunityMembership[]
   messages        CommunityMessage[]
+  messageReports  CommunityMessageReport[]
+  moderationActions CommunityModerationAction[]
 
   @@index([createdByUserId, createdAt])
   @@index([visibility, type, createdAt])
@@ -886,6 +915,8 @@ model CommunityMessage {
   replies          CommunityMessage[] @relation("CommunityMessageReplies")
   attachments      CommunityMessageAttachment[]
   reactions        CommunityMessageReaction[]
+  reports          CommunityMessageReport[]
+  moderationActions CommunityModerationAction[] @relation("CommunityModerationTargetMessage")
 
   @@index([communityId, createdAt, id])
   @@index([replyToMessageId, createdAt, id])
@@ -920,6 +951,47 @@ model CommunityMessageReaction {
   @@unique([messageId, userId])
   @@index([messageId, type])
   @@index([userId, messageId])
+}
+
+model CommunityMessageReport {
+  id               String                @id @default(cuid())
+  communityId      String
+  messageId        String
+  reporterUserId   String
+  reason           CommunityReportReason
+  details          String?
+  status           CommunityReportStatus @default(OPEN)
+  createdAt        DateTime              @default(now())
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  community        Community             @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  message          CommunityMessage      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  reporter         User                  @relation("CommunityMessageReporter", fields: [reporterUserId], references: [id], onDelete: Restrict)
+  resolvedBy       User?                 @relation("CommunityMessageReportResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([messageId, reporterUserId])
+  @@index([communityId, status, createdAt])
+  @@index([reporterUserId, createdAt])
+}
+
+model CommunityModerationAction {
+  id              String                        @id @default(cuid())
+  communityId     String
+  actorUserId     String
+  targetUserId    String?
+  targetMessageId String?
+  action          CommunityModerationActionType
+  reason          String?
+  createdAt       DateTime                      @default(now())
+  community       Community                     @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  actor           User                          @relation("CommunityModerationActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  targetUser      User?                         @relation("CommunityModerationTargetUser", fields: [targetUserId], references: [id], onDelete: Restrict)
+  targetMessage   CommunityMessage?             @relation("CommunityModerationTargetMessage", fields: [targetMessageId], references: [id], onDelete: SetNull)
+
+  @@index([communityId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([targetMessageId, createdAt])
 }
 
 model ContentImportJob {

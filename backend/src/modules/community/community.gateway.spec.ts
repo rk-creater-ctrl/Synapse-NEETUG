@@ -213,6 +213,29 @@ describe('CommunityGateway', () => {
     }]);
   });
 
+  it('evicts every matching authenticated socket only from the derived community room', async () => {
+    const firstDevice = socket('device-1');
+    const secondDevice = socket('device-2');
+    const otherUser = socket('device-3');
+    await authenticate(firstDevice, 'student-1');
+    await authenticate(secondDevice, 'student-1');
+    await authenticate(otherUser, 'student-2');
+    gateway.server = {
+      sockets: new Map([
+        [firstDevice.id, firstDevice],
+        [secondDevice.id, secondDevice],
+        [otherUser.id, otherUser],
+      ]),
+    } as never;
+
+    await gateway.evictUserFromCommunity('community-1', 'student-1');
+
+    expect(firstDevice.leave).toHaveBeenCalledWith('community:community-1');
+    expect(secondDevice.leave).toHaveBeenCalledWith('community:community-1');
+    expect(otherUser.leave).not.toHaveBeenCalled();
+    expect(firstDevice.disconnect).not.toHaveBeenCalled();
+  });
+
   it('does not broadcast when Phase 12C rejects a CHANNEL member, banned member, or muted member', async () => {
     const client = socket('socket-1');
     await authenticate(client);
