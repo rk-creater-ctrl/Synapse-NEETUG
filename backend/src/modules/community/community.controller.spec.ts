@@ -202,6 +202,8 @@ describe('CommunityController', () => {
     expect(gateway.broadcastMemberModerated).toHaveBeenCalledWith({
       communityId: 'community-1', userId: 'user-target', action: 'BANNED', changed: true,
     });
+    expect(gateway.broadcastMemberModerated.mock.invocationCallOrder[0])
+      .toBeLessThan(gateway.evictUserFromCommunity.mock.invocationCallOrder[0]);
   });
 
   it('evicts a removed member only from a private community room', async () => {

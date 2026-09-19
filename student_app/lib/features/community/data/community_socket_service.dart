@@ -15,18 +15,20 @@ class CommunitySocketService {
   final void Function() onReconnected;
   io.Socket? _socket;
   String? _communityId;
+  Future<bool>? _joinFuture;
+  String? _joiningCommunityId;
+  bool _hasConnected = false;
+  int _connectionEpoch = 0;
 
   CommunitySocketService({required this.baseUrl, required this.storage, required this.onMessage, required this.onReaction, required this.onDeleted, required this.onMemberModerated, required this.onReconnected});
 
   Future<bool> connectAndJoin(String communityId) async {
     _communityId = communityId;
-    final token = await storage.read(key: 'access');
-    if (token == null) return false;
     final socket = _socket;
     if (socket == null) {
       final next = io.io('${Uri.parse(baseUrl).origin}/community', io.OptionBuilder()
         .setTransports(['websocket'])
-        .setAuth({'token': token})
+        .setAuthFn((callback) { unawaited(_supplyAuth(callback)); })
         .enableReconnection()
         .setReconnectionAttempts(5)
         .setReconnectionDelay(500)
@@ -62,16 +64,32 @@ class CommunitySocketService {
       socket!.emit('community:leave', {'communityId': communityId});
     }
     _communityId = null;
+    _joinFuture = null;
+    _joiningCommunityId = null;
   }
 
   void dispose() {
     _communityId = null;
+    _joinFuture = null;
+    _joiningCommunityId = null;
     _socket?.dispose();
     _socket = null;
   }
 
   void _register(io.Socket socket) {
-    socket.onConnect((_) { final id = _communityId; if (id != null) unawaited(_joinWhenConnected(id).then((joined) { if (joined) onReconnected(); })); });
+    socket.onConnect((_) {
+      final reconnected = _hasConnected;
+      _hasConnected = true;
+      _connectionEpoch += 1;
+      _joinFuture = null;
+      _joiningCommunityId = null;
+      final id = _communityId;
+      if (id != null) {
+        unawaited(_joinWhenConnected(id).then((joined) {
+          if (joined && reconnected) onReconnected();
+        }));
+      }
+    });
     socket.on('community:message:new', (payload) { final map = _map(payload); if (map['communityId']?.toString() == _communityId) onMessage(CommunityMessage.fromJson(map)); });
     socket.on('community:message:reaction', (payload) {
       final map = _map(payload);
@@ -92,12 +110,36 @@ class CommunitySocketService {
       socket.once('connect', connected);
       try { await completer.future.timeout(const Duration(seconds: 10)); } catch (_) { return false; }
     }
+    if (_communityId != communityId || !socket.connected) return false;
+    final existing = _joinFuture;
+    if (existing != null && _joiningCommunityId == communityId) return existing;
+
+    final joining = _emitJoin(socket, communityId, _connectionEpoch);
+    _joiningCommunityId = communityId;
+    _joinFuture = joining;
+    final joined = await joining;
+    if (identical(_joinFuture, joining)) {
+      _joinFuture = null;
+      _joiningCommunityId = null;
+    }
+    return joined;
+  }
+
+  Future<bool> _emitJoin(io.Socket socket, String communityId, int connectionEpoch) async {
     try {
       final response = await socket.emitWithAckAsync('community:join', {'communityId': communityId}).timeout(const Duration(seconds: 10));
-      return _map(response)['ok'] == true;
+      return _communityId == communityId
+        && identical(_socket, socket)
+        && _connectionEpoch == connectionEpoch
+        && _map(response)['ok'] == true;
     } catch (_) {
       return false;
     }
+  }
+
+  Future<void> _supplyAuth(void Function(Map auth) callback) async {
+    final token = await storage.read(key: 'access');
+    callback(token == null ? <String, dynamic>{} : <String, dynamic>{'token': token});
   }
 
   Map<String, dynamic> _map(Object? value) => value is Map ? Map<String, dynamic>.from(value) : const {};

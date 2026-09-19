@@ -24,6 +24,7 @@ describe('CommunityService', () => {
     id: 'membership-1',
     userId: 'user-member',
     role: CommunityMemberRole.MEMBER,
+    mutedUntil: null,
     bannedAt: null,
     createdAt,
     ...overrides,
@@ -53,7 +54,7 @@ describe('CommunityService', () => {
   it('creates the community and its creator OWNER membership in one transaction', async () => {
     communities.create.mockResolvedValueOnce({
       ...community({ name: ' NEET Physics ' }),
-      memberships: [{ role: CommunityMemberRole.OWNER }],
+      memberships: [{ userId: 'user-owner', role: CommunityMemberRole.OWNER, mutedUntil: null }],
     });
 
     const result = await service.create('user-owner', {
@@ -99,8 +100,8 @@ describe('CommunityService', () => {
 
   it('lists only the authenticated user memberships with deterministic ordering', async () => {
     memberships.findMany.mockResolvedValueOnce([
-      { role: CommunityMemberRole.MEMBER, community: community({ id: 'community-b', updatedAt: new Date('2026-09-17T09:00:00.000Z') }) },
-      { role: CommunityMemberRole.MODERATOR, community: community({ id: 'community-a', updatedAt: new Date('2026-09-17T10:00:00.000Z') }) },
+      { role: CommunityMemberRole.MEMBER, mutedUntil: null, community: community({ id: 'community-b', updatedAt: new Date('2026-09-17T09:00:00.000Z') }) },
+      { role: CommunityMemberRole.MODERATOR, mutedUntil: null, community: community({ id: 'community-a', updatedAt: new Date('2026-09-17T10:00:00.000Z') }) },
     ]);
 
     const result = await service.listForUser('user-member');
@@ -118,10 +119,13 @@ describe('CommunityService', () => {
 
     communities.findFirst.mockResolvedValueOnce({
       ...community(),
-      memberships: [{ role: CommunityMemberRole.MEMBER }],
+      memberships: [{ userId: 'user-member', role: CommunityMemberRole.MEMBER, mutedUntil: new Date('2026-09-17T12:00:00.000Z') }],
     });
     await expect(service.getForUser('user-member', 'community-private')).resolves.toMatchObject({
       id: 'community-1', membershipRole: CommunityMemberRole.MEMBER,
+      viewerMembership: {
+        userId: 'user-member', role: CommunityMemberRole.MEMBER, mutedUntil: new Date('2026-09-17T12:00:00.000Z'),
+      },
     });
     expect(communities.findFirst).toHaveBeenLastCalledWith(expect.objectContaining({
       where: expect.objectContaining({
@@ -143,6 +147,7 @@ describe('CommunityService', () => {
 
     expect(result).toMatchObject({ id: 'community-1', visibility: CommunityVisibility.PUBLIC });
     expect(result).not.toHaveProperty('membershipRole');
+    expect(result).not.toHaveProperty('viewerMembership');
     expect(result).not.toHaveProperty('author');
     expect(result).not.toHaveProperty('passwordHash');
   });
@@ -150,7 +155,7 @@ describe('CommunityService', () => {
   it('discovers only public communities in stable order and includes only active caller membership state', async () => {
     communities.findMany.mockResolvedValueOnce([
       { ...community({ id: 'community-b' }), memberships: [] },
-      { ...community({ id: 'community-a' }), memberships: [{ role: CommunityMemberRole.MODERATOR }] },
+      { ...community({ id: 'community-a' }), memberships: [{ userId: 'user-reader', role: CommunityMemberRole.MODERATOR, mutedUntil: null }] },
     ]);
 
     const result = await service.discoverPublic('user-reader');

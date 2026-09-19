@@ -264,8 +264,8 @@ export class CommunityController {
   ) {
     const result = await this.moderation.banMember(request.user.id, communityId, userId, dto);
     if (result.changed) {
-      await this.gateway.evictUserFromCommunity(communityId, userId);
       this.gateway.broadcastMemberModerated(result);
+      await this.gateway.evictUserFromCommunity(communityId, userId);
     }
     return result;
   }

@@ -17,7 +17,7 @@ const communitySelect = {
 
 const communityWithMembershipSelect = {
   ...communitySelect,
-  memberships: { select: { role: true } },
+  memberships: { select: { userId: true, role: true, mutedUntil: true } },
 } as const;
 
 type CommunityRecord = Prisma.CommunityGetPayload<{ select: typeof communitySelect }>;
@@ -29,6 +29,7 @@ const membershipSelect = {
   id: true,
   userId: true,
   role: true,
+  mutedUntil: true,
   bannedAt: true,
   createdAt: true,
 } as const;
@@ -55,7 +56,7 @@ export class CommunityService {
         select: communityWithMembershipSelect,
       }),
     );
-    return this.toResponse(community, community.memberships[0]?.role);
+    return this.toResponse(community, community.memberships[0]);
   }
 
   async listForUser(userId: string) {
@@ -64,12 +65,17 @@ export class CommunityService {
       orderBy: { communityId: 'asc' },
       select: {
         role: true,
+        mutedUntil: true,
         community: { select: communitySelect },
       },
     });
 
     return memberships
-      .map((membership) => this.toResponse(membership.community, membership.role))
+      .map((membership) => this.toResponse(membership.community, {
+        userId,
+        role: membership.role,
+        mutedUntil: membership.mutedUntil,
+      }))
       .sort((left, right) => {
         const updatedAtComparison = right.updatedAt.getTime() - left.updatedAt.getTime();
         return updatedAtComparison !== 0 ? updatedAtComparison : left.id.localeCompare(right.id);
@@ -89,7 +95,7 @@ export class CommunityService {
         ...communitySelect,
         memberships: {
           where: { userId, bannedAt: null },
-          select: { role: true },
+          select: { userId: true, role: true, mutedUntil: true },
         },
       },
     });
@@ -99,7 +105,7 @@ export class CommunityService {
         message: 'Community not found.',
       });
     }
-    return this.toResponse(community, community.memberships[0]?.role);
+    return this.toResponse(community, community.memberships[0]);
   }
 
   async discoverPublic(userId: string) {
@@ -110,11 +116,11 @@ export class CommunityService {
         ...communitySelect,
         memberships: {
           where: { userId, bannedAt: null },
-          select: { role: true },
+          select: { userId: true, role: true, mutedUntil: true },
         },
       },
     });
-    return communities.map((community) => this.toResponse(community, community.memberships[0]?.role));
+    return communities.map((community) => this.toResponse(community, community.memberships[0]));
   }
 
   async joinPublicGroup(userId: string, communityId: string) {
@@ -128,7 +134,7 @@ export class CommunityService {
     const existing = await this.findMembership(communityId, userId);
     if (existing) {
       if (existing.bannedAt) this.membershipBanned();
-      return this.toResponse(community, existing.role);
+      return this.toResponse(community, existing);
     }
 
     try {
@@ -136,12 +142,12 @@ export class CommunityService {
         data: { communityId, userId, role: CommunityMemberRole.MEMBER },
         select: membershipSelect,
       });
-      return this.toResponse(community, membership.role);
+      return this.toResponse(community, membership);
     } catch (error) {
       if (this.isUniqueConstraint(error)) {
         const concurrentMembership = await this.findMembership(communityId, userId);
         if (concurrentMembership?.bannedAt) this.membershipBanned();
-        if (concurrentMembership) return this.toResponse(community, concurrentMembership.role);
+        if (concurrentMembership) return this.toResponse(community, concurrentMembership);
       }
       throw error;
     }
@@ -338,7 +344,11 @@ export class CommunityService {
 
   private toResponse(
     community: CommunityRecord | CommunityWithMembershipRecord,
-    membershipRole?: CommunityMemberRole,
+    viewerMembership?: {
+      userId: string;
+      role: CommunityMemberRole;
+      mutedUntil: Date | null;
+    },
   ) {
     return {
       id: community.id,
@@ -346,7 +356,14 @@ export class CommunityService {
       description: community.description,
       type: community.type,
       visibility: community.visibility,
-      ...(membershipRole ? { membershipRole } : {}),
+      ...(viewerMembership ? {
+        membershipRole: viewerMembership.role,
+        viewerMembership: {
+          userId: viewerMembership.userId,
+          role: viewerMembership.role,
+          mutedUntil: viewerMembership.mutedUntil,
+        },
+      } : {}),
       createdAt: community.createdAt,
       updatedAt: community.updatedAt,
     };

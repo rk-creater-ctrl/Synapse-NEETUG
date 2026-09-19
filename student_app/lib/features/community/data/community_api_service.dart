@@ -64,7 +64,7 @@ class CommunityApiService {
   Future<void> openAttachment(CommunityAttachment attachment) async {
     final response = await dio.get<List<int>>('/communities/attachments/${attachment.id}', options: Options(responseType: ResponseType.bytes));
     final cache = await getTemporaryDirectory();
-    final file = File('${cache.path}${Platform.pathSeparator}${_safeFileName(attachment.fileName)}');
+    final file = File('${cache.path}${Platform.pathSeparator}${safeCommunityAttachmentFileName(attachment.id, attachment.fileName)}');
     await file.writeAsBytes(response.data ?? const [], flush: true);
     await OpenFilex.open(file.path, type: attachment.mimeType);
   }
@@ -82,11 +82,21 @@ class CommunityApiService {
 
   static List<Map<String, dynamic>> _list(Object? value) => (value as List? ?? const []).whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
   static Map<String, dynamic> _map(Object? value) => value is Map ? Map<String, dynamic>.from(value) : const {};
-  static String _safeFileName(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_').isEmpty ? 'attachment' : value.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
   static String _wireReportReason(CommunityReportReason reason) => switch (reason) {
     CommunityReportReason.inappropriateContent => 'INAPPROPRIATE_CONTENT',
     _ => reason.name.toUpperCase(),
   };
+}
+
+String safeCommunityAttachmentFileName(String attachmentId, String value) {
+  final safeId = attachmentId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+  final sanitized = value
+    .replaceAll(RegExp(r'^.*[\\/]'), '')
+    .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+  final name = sanitized.isEmpty || RegExp(r'^[._-]+$').hasMatch(sanitized)
+    ? 'attachment'
+    : sanitized;
+  return 'community_${safeId.isEmpty ? 'attachment' : safeId}_$name';
 }
 
 class CommunityMessageReactionState {

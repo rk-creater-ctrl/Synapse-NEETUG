@@ -11,6 +11,7 @@ type Community = {
   type: string;
   visibility: string;
   membershipRole?: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
+  viewerMembership?: { userId: string; role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER'; mutedUntil: string | null };
 };
 type Member = { userId: string; displayName: string; role: string; mutedUntil: string | null; bannedAt: string | null };
 type Report = {
@@ -22,6 +23,17 @@ type Action = { id: string; action: string; reason: string | null; createdAt: st
 type CursorPage<T> = { items: T[]; nextCursor: string | null };
 
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString() : '—';
+type CommunityRole = NonNullable<Community['membershipRole']>;
+const manageableRoles: Record<CommunityRole, CommunityRole[]> = {
+  OWNER: ['ADMIN', 'MODERATOR', 'MEMBER'],
+  ADMIN: ['MODERATOR', 'MEMBER'],
+  MODERATOR: ['MEMBER'],
+  MEMBER: [],
+};
+const canModerateMember = (viewer: Community['viewerMembership'] | undefined, member: Member) =>
+  viewer !== undefined
+  && viewer.userId !== member.userId
+  && manageableRoles[viewer.role].includes(member.role as CommunityRole);
 
 export default function CommunityDetailPage({ params }: { params: Promise<{ communityId: string }> }) {
   const [communityId, setCommunityId] = useState<string>();
@@ -109,8 +121,10 @@ export default function CommunityDetailPage({ params }: { params: Promise<{ comm
         <section className="card"><h2>Members</h2>
           <table><thead><tr><th>Member</th><th>Role</th><th>Mute</th><th>Ban</th><th>Actions</th></tr></thead><tbody>
             {members.map((member) => <tr key={member.userId}><td>{member.displayName}</td><td>{member.role}</td><td>{dateTime(member.mutedUntil)}</td><td>{member.bannedAt ? 'Banned' : 'Active'}</td><td className="row">
-              {member.bannedAt ? <button onClick={() => void mutate(`/communities/${communityId}/members/${member.userId}/ban`, 'DELETE')}>Unban</button> : <button onClick={() => { if (window.confirm(`Ban ${member.displayName}?`)) void mutate(`/communities/${communityId}/members/${member.userId}/ban`, 'PUT'); }}>Ban</button>}
-              {member.mutedUntil ? <button onClick={() => void mutate(`/communities/${communityId}/members/${member.userId}/mute`, 'DELETE')}>Unmute</button> : <button onClick={() => mute(member)}>Mute</button>}
+              {canModerateMember(community?.viewerMembership, member) && <>
+                {member.bannedAt ? <button onClick={() => void mutate(`/communities/${communityId}/members/${member.userId}/ban`, 'DELETE')}>Unban</button> : <button onClick={() => { if (window.confirm(`Ban ${member.displayName}?`)) void mutate(`/communities/${communityId}/members/${member.userId}/ban`, 'PUT'); }}>Ban</button>}
+                {member.mutedUntil ? <button onClick={() => void mutate(`/communities/${communityId}/members/${member.userId}/mute`, 'DELETE')}>Unmute</button> : <button onClick={() => mute(member)}>Mute</button>}
+              </>}
             </td></tr>)}
           </tbody></table>
           {memberCursor && <button onClick={() => void loadMore<Member>(`/communities/${communityId}/moderation/members`, memberCursor, (items) => setMembers((current) => [...current, ...items]), setMemberCursor)}>Load more members</button>}

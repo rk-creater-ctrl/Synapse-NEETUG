@@ -82,11 +82,12 @@ class _DiscoverTileState extends ConsumerState<_DiscoverTile> {
     final community = widget.community;
     final joined = community.membershipRole != null;
     final canJoin = !joined && community.type == CommunityType.group && community.visibility == CommunityVisibility.public;
+    final canOpen = mayOpenDiscoveredCommunity(community);
     return Card(child: ListTile(
       title: Text(community.name), subtitle: Text([community.typeLabel, community.visibilityLabel, if (community.description?.isNotEmpty == true) community.description!].join('\n')),
       isThreeLine: community.description?.isNotEmpty == true,
       trailing: joined ? const Icon(Icons.check) : canJoin ? FilledButton(onPressed: _joining ? null : _join, child: Text(_joining ? 'Joining...' : 'Join')) : null,
-      onTap: joined ? () => context.push('/communities/${community.id}') : null,
+      onTap: canOpen ? () => context.push('/communities/${community.id}') : null,
     ));
   }
 }

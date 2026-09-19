@@ -47,12 +47,52 @@ void main() {
     expect(updated.myReaction, CommunityReactionType.like);
   });
 
-  test('publishing policy keeps channel members read-only and group members eligible', () {
-    final channel = Community.fromJson({'id': 'channel', 'name': 'Channel', 'type': 'CHANNEL', 'visibility': 'PUBLIC', 'membershipRole': 'MEMBER'});
-    final group = Community.fromJson({'id': 'group', 'name': 'Group', 'type': 'GROUP', 'visibility': 'PUBLIC', 'membershipRole': 'MEMBER'});
+  test('publishing and reaction policies distinguish channel members', () {
+    final channel = Community.fromJson({
+      'id': 'channel', 'name': 'Channel', 'type': 'CHANNEL', 'visibility': 'PUBLIC', 'membershipRole': 'MEMBER',
+      'viewerMembership': {'userId': 'user-1', 'role': 'MEMBER', 'mutedUntil': null},
+    });
+    final group = Community.fromJson({
+      'id': 'group', 'name': 'Group', 'type': 'GROUP', 'visibility': 'PUBLIC', 'membershipRole': 'MEMBER',
+      'viewerMembership': {'userId': 'user-1', 'role': 'MEMBER', 'mutedUntil': null},
+    });
     expect(mayPublishInCommunity(channel), isFalse);
+    expect(mayReactInCommunity(channel), isTrue);
     expect(mayPublishInCommunity(group), isTrue);
-    expect(mayPublishInCommunity(group, muted: true), isFalse);
+    expect(mayReactInCommunity(group), isTrue);
+  });
+
+  test('muted channel members and public non-members cannot react', () {
+    final mutedChannelMember = Community.fromJson({
+      'id': 'channel', 'name': 'Channel', 'type': 'CHANNEL', 'visibility': 'PUBLIC', 'membershipRole': 'MEMBER',
+      'viewerMembership': {'userId': 'user-1', 'role': 'MEMBER', 'mutedUntil': '2030-01-01T00:00:00.000Z'},
+    });
+    final publicReader = Community.fromJson({
+      'id': 'public', 'name': 'Public', 'type': 'CHANNEL', 'visibility': 'PUBLIC',
+    });
+    expect(mayReactInCommunity(mutedChannelMember, now: DateTime.utc(2026)), isFalse);
+    expect(mayReactInCommunity(publicReader), isFalse);
+    expect(mayPublishInCommunity(publicReader), isFalse);
+    expect(mayOpenDiscoveredCommunity(publicReader), isTrue);
+  });
+
+  test('expired viewer mute no longer blocks eligible community actions', () {
+    final groupMember = Community.fromJson({
+      'id': 'group', 'name': 'Group', 'type': 'GROUP', 'visibility': 'PUBLIC', 'membershipRole': 'MEMBER',
+      'viewerMembership': {'userId': 'user-1', 'role': 'MEMBER', 'mutedUntil': '2025-01-01T00:00:00.000Z'},
+    });
+    final now = DateTime.utc(2026);
+    expect(mayPublishInCommunity(groupMember, now: now), isTrue);
+    expect(mayReactInCommunity(groupMember, now: now), isTrue);
+  });
+
+  test('identifies only current-viewer moderation events for authoritative refresh', () {
+    final community = Community.fromJson({
+      'id': 'group', 'name': 'Group', 'type': 'GROUP', 'visibility': 'PUBLIC', 'membershipRole': 'MEMBER',
+      'viewerMembership': {'userId': 'user-1', 'role': 'MEMBER', 'mutedUntil': null},
+    });
+    expect(isCurrentCommunityViewer(community, 'user-1'), isTrue);
+    expect(isCurrentCommunityViewer(community, 'user-2'), isFalse);
   });
 
   test('unknown server enum values remain non-publishable', () {
@@ -70,5 +110,13 @@ void main() {
     expect(() => api.validateAttachments([const CommunityUploadAttachment(path: '/tmp/file.txt', fileName: 'file.txt', mimeType: 'text/plain', sizeBytes: 1)]), throwsA(isA<FormatException>()));
     expect(() => api.validateAttachments([const CommunityUploadAttachment(path: '/tmp/file.pdf', fileName: 'file.pdf', mimeType: 'application/pdf', sizeBytes: CommunityAttachmentValidation.maxPdfBytes + 1)]), throwsA(isA<FormatException>()));
     expect(() => api.validateAttachments(List.generate(4, (index) => CommunityUploadAttachment(path: '/tmp/$index.pdf', fileName: '$index.pdf', mimeType: 'application/pdf', sizeBytes: 11 * 1024 * 1024))), throwsA(isA<FormatException>()));
+  });
+
+  test('creates safe local attachment filenames', () {
+    expect(safeCommunityAttachmentFileName('attachment-1', 'notes.pdf'), 'community_attachment-1_notes.pdf');
+    expect(safeCommunityAttachmentFileName('attachment-1', '../notes.pdf'), 'community_attachment-1_notes.pdf');
+    expect(safeCommunityAttachmentFileName('attachment-1', '.'), 'community_attachment-1_attachment');
+    expect(safeCommunityAttachmentFileName('attachment-1', '..'), 'community_attachment-1_attachment');
+    expect(safeCommunityAttachmentFileName('attachment-1', '***'), 'community_attachment-1_attachment');
   });
 }

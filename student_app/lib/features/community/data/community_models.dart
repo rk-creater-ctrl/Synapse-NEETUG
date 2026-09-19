@@ -17,18 +17,34 @@ class Community {
   final CommunityType type;
   final CommunityVisibility visibility;
   final CommunityRole? membershipRole;
+  final CommunityViewerMembership? viewerMembership;
   final DateTime? createdAt;
 
-  const Community({required this.id, required this.name, required this.description, required this.type, required this.visibility, required this.membershipRole, required this.createdAt});
+  const Community({required this.id, required this.name, required this.description, required this.type, required this.visibility, required this.membershipRole, required this.viewerMembership, required this.createdAt});
   factory Community.fromJson(Map<String, dynamic> json) => Community(
     id: json['id']?.toString() ?? '', name: json['name']?.toString() ?? 'Community', description: json['description']?.toString(),
     type: _enumValue(CommunityType.values, json['type']?.toString(), CommunityType.unknown),
     visibility: _enumValue(CommunityVisibility.values, json['visibility']?.toString(), CommunityVisibility.unknown),
     membershipRole: json['membershipRole'] == null ? null : _enumValue(CommunityRole.values, json['membershipRole']?.toString(), CommunityRole.unknown),
+    viewerMembership: json['viewerMembership'] is Map ? CommunityViewerMembership.fromJson(_map(json['viewerMembership'])) : null,
     createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? ''),
   );
   String get typeLabel => type.name.toUpperCase();
   String get visibilityLabel => visibility.name.toUpperCase();
+}
+
+class CommunityViewerMembership {
+  final String userId;
+  final CommunityRole role;
+  final DateTime? mutedUntil;
+
+  const CommunityViewerMembership({required this.userId, required this.role, required this.mutedUntil});
+
+  factory CommunityViewerMembership.fromJson(Map<String, dynamic> json) => CommunityViewerMembership(
+    userId: json['userId']?.toString() ?? '',
+    role: _enumValue(CommunityRole.values, json['role']?.toString(), CommunityRole.unknown),
+    mutedUntil: DateTime.tryParse(json['mutedUntil']?.toString() ?? ''),
+  );
 }
 
 class CommunityAuthor {
@@ -125,9 +141,32 @@ List<CommunityMessage> redactCommunityMessage(List<CommunityMessage> messages, S
 
 List<CommunityMessage> applyCommunityReaction(List<CommunityMessage> messages, String messageId, List<CommunityReactionSummary> reactions) => messages.map((message) => message.id == messageId && !message.isDeleted ? message.copyWith(reactions: reactions) : message).toList();
 
-bool mayPublishInCommunity(Community community, {bool muted = false}) => !muted &&
-  community.membershipRole != null && community.membershipRole != CommunityRole.unknown &&
-  (community.type == CommunityType.group || community.membershipRole != CommunityRole.member);
+CommunityRole? _viewerRole(Community community) => community.viewerMembership?.role ?? community.membershipRole;
+
+bool isCommunityViewerMuted(Community community, {DateTime? now}) {
+  final mutedUntil = community.viewerMembership?.mutedUntil;
+  return mutedUntil != null && mutedUntil.isAfter(now ?? DateTime.now());
+}
+
+bool hasActiveCommunityMembership(Community community) {
+  final role = _viewerRole(community);
+  return role != null && role != CommunityRole.unknown;
+}
+
+bool mayPublishInCommunity(Community community, {DateTime? now}) {
+  final role = _viewerRole(community);
+  return hasActiveCommunityMembership(community)
+    && !isCommunityViewerMuted(community, now: now)
+    && (community.type == CommunityType.group || role != CommunityRole.member);
+}
+
+bool mayReactInCommunity(Community community, {DateTime? now}) =>
+  hasActiveCommunityMembership(community) && !isCommunityViewerMuted(community, now: now);
+
+bool mayOpenDiscoveredCommunity(Community community) => community.visibility == CommunityVisibility.public;
+
+bool isCurrentCommunityViewer(Community? community, String userId) =>
+  userId.isNotEmpty && community?.viewerMembership?.userId == userId;
 
 class CommunityAttachmentValidation {
   static const maxCount = 4;

@@ -31,11 +31,11 @@ class _CommunityConversationScreenState extends ConsumerState<CommunityConversat
   bool _loading = true;
   bool _loadingOlder = false;
   bool _sending = false;
-  bool _muted = false;
   String? _error;
 
   CommunityApiService get _api => ref.read(communityApiProvider);
-  bool get _canPublish => _community != null && mayPublishInCommunity(_community!, muted: _muted);
+  bool get _canPublish => _community != null && mayPublishInCommunity(_community!);
+  bool get _canReact => _community != null && mayReactInCommunity(_community!);
 
   @override
   void initState() { super.initState(); unawaited(_load(initial: true)); }
@@ -51,7 +51,6 @@ class _CommunityConversationScreenState extends ConsumerState<CommunityConversat
         _community = community;
         _messages = mergeCommunityMessages(_messages, page.items);
         _nextCursor = page.nextCursor;
-        _muted = false;
       });
       await _connectSocket();
     } on DioException catch (error) {
@@ -67,7 +66,11 @@ class _CommunityConversationScreenState extends ConsumerState<CommunityConversat
       onMessage: (message) { if (mounted) setState(() => _messages = mergeCommunityMessages(_messages, [message])); },
       onReaction: (messageId, reactions) { if (mounted) setState(() => _messages = applyCommunityReaction(_messages, messageId, reactions)); },
       onDeleted: (messageId) { if (mounted) setState(() { _messages = redactCommunityMessage(_messages, messageId); if (_replyTo?.id == messageId) _replyTo = null; }); },
-      onMemberModerated: (_, __) => unawaited(_refreshAfterModeration()),
+      onMemberModerated: (userId, _) {
+        if (isCurrentCommunityViewer(_community, userId)) {
+          unawaited(_refreshAfterModeration());
+        }
+      },
       onReconnected: () => unawaited(_reloadNewestHistory()),
     );
     await _socket!.connectAndJoin(widget.communityId);
@@ -83,10 +86,10 @@ class _CommunityConversationScreenState extends ConsumerState<CommunityConversat
   Future<void> _refreshAfterModeration() async {
     try {
       final community = await _api.getCommunity(widget.communityId);
-      if (mounted) setState(() { _community = community; _muted = false; });
+      if (mounted) setState(() => _community = community);
       if (community.membershipRole == null) await _socket?.leave();
     } catch (_) {
-      if (mounted) setState(() { _community = null; _muted = true; _error = 'Your access to this community has changed.'; });
+      if (mounted) setState(() { _community = null; _error = 'Your access to this community has changed.'; });
     }
   }
 
@@ -137,7 +140,7 @@ class _CommunityConversationScreenState extends ConsumerState<CommunityConversat
   }
 
   Future<void> _react(CommunityMessage message, CommunityReactionType type) async {
-    if (!_canPublish || message.isDeleted) return;
+    if (!_canReact || message.isDeleted) return;
     try {
       final result = await _api.toggleReaction(widget.communityId, message.id, type);
       if (mounted) setState(() => _messages = _messages.map((item) => item.id == message.id ? item.copyWith(reactions: result.reactions, myReaction: result.myReaction, clearMyReaction: result.myReaction == null) : item).toList());
@@ -163,8 +166,9 @@ class _CommunityConversationScreenState extends ConsumerState<CommunityConversat
 
   void _handlePublishError(DioException error) {
     final code = error.response?.data is Map ? (error.response!.data as Map)['code']?.toString() : null;
-    if (code == 'COMMUNITY_MEMBERSHIP_MUTED') setState(() => _muted = true);
-    if (code == 'COMMUNITY_MESSAGE_PUBLISH_FORBIDDEN' || code == 'COMMUNITY_REACTION_NOT_ALLOWED') unawaited(_refreshAfterModeration());
+    if (code == 'COMMUNITY_MEMBERSHIP_MUTED' || code == 'COMMUNITY_MESSAGE_PUBLISH_FORBIDDEN' || code == 'COMMUNITY_REACTION_NOT_ALLOWED') {
+      unawaited(_refreshAfterModeration());
+    }
     _show(_apiMessage(error));
   }
   void _show(String text) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text))); }
@@ -187,7 +191,7 @@ class _CommunityConversationScreenState extends ConsumerState<CommunityConversat
         Expanded(child: _messages.isEmpty ? const Center(child: Text('No messages yet.')) : ListView.builder(
           padding: const EdgeInsets.all(12), itemCount: _messages.length + (_nextCursor == null ? 0 : 1),
           itemBuilder: (_, index) => index == 0 && _nextCursor != null ? TextButton(onPressed: _loadingOlder ? null : _loadOlder, child: Text(_loadingOlder ? 'Loading...' : 'Load older messages')) : _MessageCard(
-            message: _messages[index - (_nextCursor == null ? 0 : 1)], canPublish: _canPublish, onReply: (message) => setState(() => _replyTo = message), onReact: _react, onReport: _report, onOpenAttachment: (attachment) async { try { await _api.openAttachment(attachment); } catch (_) { _show('Unable to open attachment.'); } },
+            message: _messages[index - (_nextCursor == null ? 0 : 1)], canPublish: _canPublish, canReact: _canReact, onReply: (message) => setState(() => _replyTo = message), onReact: _react, onReport: _report, onOpenAttachment: (attachment) async { try { await _api.openAttachment(attachment); } catch (_) { _show('Unable to open attachment.'); } },
           ),
         )),
         if (_replyTo != null) ListTile(title: Text('Replying to ${_replyTo!.author.displayName}'), subtitle: Text(_replyTo!.content ?? 'Deleted message'), trailing: IconButton(onPressed: () => setState(() => _replyTo = null), icon: const Icon(Icons.close))),
@@ -200,8 +204,8 @@ class _CommunityConversationScreenState extends ConsumerState<CommunityConversat
 }
 
 class _MessageCard extends StatelessWidget {
-  final CommunityMessage message; final bool canPublish; final ValueChanged<CommunityMessage> onReply; final Future<void> Function(CommunityMessage, CommunityReactionType) onReact; final Future<void> Function(CommunityMessage) onReport; final Future<void> Function(CommunityAttachment) onOpenAttachment;
-  const _MessageCard({required this.message, required this.canPublish, required this.onReply, required this.onReact, required this.onReport, required this.onOpenAttachment});
+  final CommunityMessage message; final bool canPublish; final bool canReact; final ValueChanged<CommunityMessage> onReply; final Future<void> Function(CommunityMessage, CommunityReactionType) onReact; final Future<void> Function(CommunityMessage) onReport; final Future<void> Function(CommunityAttachment) onOpenAttachment;
+  const _MessageCard({required this.message, required this.canPublish, required this.canReact, required this.onReply, required this.onReact, required this.onReport, required this.onOpenAttachment});
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -248,7 +252,7 @@ class _MessageCard extends StatelessWidget {
               ),
               Wrap(
                 children: [
-                  if (canPublish)
+                  if (canReact)
                     ...CommunityReactionType.values
                         .where((type) => type != CommunityReactionType.unknown)
                         .map(
