@@ -25,6 +25,8 @@ import 'features/learning/presentation/mentor_booking_screen.dart';
 import 'features/learning/presentation/mentor_sessions_screen.dart';
 import 'features/learning/presentation/mentor_session_detail_screen.dart';
 import 'features/learning/presentation/mentor_video_call_screen.dart';
+import 'features/community/presentation/community_landing_screen.dart';
+import 'features/community/presentation/community_conversation_screen.dart';
 
 const _storage = FlutterSecureStorage();
 final _installationIdentityService = InstallationIdentityService();
@@ -258,6 +260,16 @@ class SynapseApp extends StatelessWidget {
         GoRoute(
           path: '/mentor-sessions',
           builder: (_, __) => const MentorSessionsScreen(),
+        ),
+        GoRoute(
+          path: '/communities',
+          builder: (_, __) => const CommunitiesScreen(),
+        ),
+        GoRoute(
+          path: '/communities/:communityId',
+          builder: (_, state) => CommunityConversationScreen(
+            communityId: state.pathParameters['communityId']!,
+          ),
         ),
         GoRoute(
           path: '/mentor-sessions/:bookingId/call',
@@ -569,6 +581,10 @@ class Home extends StatelessWidget {
           SynapseButton(
             label: 'My mentor sessions',
             onPressed: () => context.go('/mentor-sessions'),
+          ),
+          SynapseButton(
+            label: 'Communities',
+            onPressed: () => context.go('/communities'),
           ),
           SynapseButton(
             label: 'Tests',
