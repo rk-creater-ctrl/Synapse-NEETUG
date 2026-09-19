@@ -20,6 +20,7 @@ import { AssessmentsModule } from './modules/assessments/assessments.module';
 import { MentorsModule } from './modules/mentors/mentors.module';
 import { VideoCallsModule } from './modules/video-calls/video-calls.module';
 import { CommunityModule } from './modules/community/community.module';
+import { PlansModule } from './modules/plans/plans.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { CommunityModule } from './modules/community/community.module';
     MentorsModule,
     VideoCallsModule,
     CommunityModule,
+    PlansModule,
   ],
   controllers: [HealthController],
   providers: [
