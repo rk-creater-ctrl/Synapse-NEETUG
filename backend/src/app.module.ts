@@ -21,6 +21,7 @@ import { MentorsModule } from './modules/mentors/mentors.module';
 import { VideoCallsModule } from './modules/video-calls/video-calls.module';
 import { CommunityModule } from './modules/community/community.module';
 import { PlansModule } from './modules/plans/plans.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { PlansModule } from './modules/plans/plans.module';
     VideoCallsModule,
     CommunityModule,
     PlansModule,
+    SubscriptionsModule,
   ],
   controllers: [HealthController],
   providers: [
